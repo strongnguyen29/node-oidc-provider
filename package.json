@@ -1,6 +1,6 @@
 {
-  "name": "oidc-provider",
-  "version": "7.14.3",
+  "name": "@strongnguyen/oidc-provider",
+  "version": "7.14.5",
   "description": "OAuth 2.0 Authorization Server implementation for Node.js with OpenID Connect",
   "keywords": [
     "appauth",
@@ -37,8 +37,8 @@
     "provider",
     "server"
   ],
-  "homepage": "https://github.com/panva/node-oidc-provider",
-  "repository": "panva/node-oidc-provider",
+  "homepage": "https://github.com/strongnguyen29/node-oidc-provider.git",
+  "repository": "strongnguyen29/node-oidc-provider",
   "funding": {
     "url": "https://github.com/sponsors/panva"
   },
