@@ -1,6 +1,6 @@
 {
   "name": "@strongnguyen/oidc-provider",
-  "version": "7.16.0",
+  "version": "7.16.1",
   "description": "OAuth 2.0 Authorization Server implementation for Node.js with OpenID Connect",
   "keywords": [
     "appauth",
@@ -52,7 +52,8 @@
     "ci": "node ./test/ci",
     "heroku-postbuild": "npm install mongodb@^4.3.0 openid-client@^5.0.0",
     "format": "eslint lib example certification test --fix",
-    "test": "node ./test/run"
+    "test": "node ./test/run",
+    "publish": "npm run format && npm publish"
   },
   "dependencies": {
     "@koa/cors": "^3.3.0",
