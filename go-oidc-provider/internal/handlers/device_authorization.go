@@ -2,6 +2,7 @@ package handlers
 
 import (
 "encoding/json"
+	"fmt"
 "crypto/rand"
 	"math/big"
 "net/http"
@@ -17,16 +18,16 @@ import (
 
 const userCodeChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-func generateUserCode() string {
+func generateUserCode() (string, error) {
 b := make([]byte, 8)
 for i := range b {
 n, err := rand.Int(rand.Reader, big.NewInt(int64(len(userCodeChars))))
 		if err != nil {
-			panic("crypto/rand failure: " + err.Error())
+			return "", fmt.Errorf("failed to generate user code: %w", err)
 		}
 		b[i] = userCodeChars[n.Int64()]
 }
-return string(b[:4]) + "-" + string(b[4:])
+return string(b[:4]) + "-" + string(b[4:]), nil
 }
 
 // NewDeviceAuthorizationHandler handles POST /device/authorization.
@@ -47,7 +48,11 @@ scope := r.FormValue("scope")
 scopes := strings.Fields(scope)
 
 deviceCode := uuid.New().String()
-userCode := generateUserCode()
+userCode, err := generateUserCode()
+		if err != nil {
+			middleware.WriteOAuthError(w, http.StatusInternalServerError, "server_error", "failed to generate user code")
+			return
+		}
 now := time.Now()
 
 dc := &models.DeviceCode{
