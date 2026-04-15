@@ -42,13 +42,13 @@ return
 
 // Validate response_type.
 if responseType == "" {
-middleware.RedirectOAuthError(w, r, redirectURI, "invalid_request", "response_type is required", state)
+middleware.RedirectOAuthError(w, r, redirectURI, client.RedirectURIs, "invalid_request", "response_type is required", state)
 return
 }
 
 // PKCE enforcement.
 if cfg.PKCERequired && strings.Contains(responseType, "code") && codeChallenge == "" {
-middleware.RedirectOAuthError(w, r, redirectURI, "invalid_request", "code_challenge required", state)
+middleware.RedirectOAuthError(w, r, redirectURI, client.RedirectURIs, "invalid_request", "code_challenge required", state)
 return
 }
 

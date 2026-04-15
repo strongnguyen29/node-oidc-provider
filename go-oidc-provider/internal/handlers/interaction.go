@@ -236,7 +236,11 @@ return
 redirectURI := interaction.Params["redirect_uri"]
 state := interaction.Params["state"]
 adapter.Destroy(r.Context(), "interaction:"+uid)
-middleware.RedirectOAuthError(w, r, redirectURI, "access_denied", "user denied access", state)
+var registeredURIs []string
+		if abortClient := cfg.FindClient(interaction.ClientID); abortClient != nil {
+			registeredURIs = abortClient.RedirectURIs
+		}
+		middleware.RedirectOAuthError(w, r, redirectURI, registeredURIs, "access_denied", "user denied access", state)
 }
 }
 

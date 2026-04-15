@@ -206,8 +206,22 @@ return
 idTokenStr = idt
 }
 
-redirectURL, err := url.Parse(redirectURI)
-if err != nil || (redirectURL.Scheme != "http" && redirectURL.Scheme != "https") {
+// Use the redirect URI from the trusted registered client list to prevent open redirect.
+trustedRedirectURI := ""
+if client := cfg.FindClient(clientID); client != nil {
+for _, reg := range client.RedirectURIs {
+if reg == redirectURI {
+trustedRedirectURI = reg
+break
+}
+}
+}
+if trustedRedirectURI == "" {
+middleware.WriteOAuthError(w, http.StatusBadRequest, "invalid_redirect_uri", "redirect_uri not registered")
+return
+}
+redirectURL, err := url.Parse(trustedRedirectURI)
+if err != nil {
 middleware.WriteOAuthError(w, http.StatusInternalServerError, "server_error", "invalid redirect_uri")
 return
 }
