@@ -4,6 +4,7 @@ import (
 "crypto/rand"
 "fmt"
 "net/http"
+"strings"
 
 "github.com/go-chi/chi/v5"
 "github.com/go-chi/chi/v5/middleware"
@@ -57,7 +58,8 @@ func (p *Provider) buildRouter() chi.Router {
 r := chi.NewRouter()
 r.Use(middleware.Recoverer)
 
-sm := mw.NewSessionMiddleware(p.config.CookieSecret)
+secure := strings.HasPrefix(p.config.Issuer, "https://")
+	sm := mw.NewSessionMiddleware(p.config.CookieSecret, secure)
 clientAuth := mw.ClientAuthMiddleware(p.config)
 
 r.Get("/.well-known/openid-configuration", handlers.NewDiscoveryHandler(p.config))

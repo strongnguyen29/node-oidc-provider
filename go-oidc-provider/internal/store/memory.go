@@ -51,6 +51,7 @@ return
 }
 
 // Stop shuts down the background eviction goroutine.
+// It should be called when the store is no longer needed to prevent goroutine leaks.
 func (s *MemoryStore) Stop() {
 close(s.quit)
 }

@@ -15,13 +15,16 @@ SessionID string `json:"session_id"`
 
 // SessionMiddleware handles encrypted session cookies.
 type SessionMiddleware struct {
-sc *securecookie.SecureCookie
+sc     *securecookie.SecureCookie
+secure bool // whether to set the Secure flag on cookies (true for HTTPS issuers)
 }
 
 // NewSessionMiddleware creates a new SessionMiddleware with the given secret.
-func NewSessionMiddleware(secret []byte) *SessionMiddleware {
+// secure should be true when the provider issuer uses HTTPS.
+func NewSessionMiddleware(secret []byte, secure bool) *SessionMiddleware {
 return &SessionMiddleware{
-sc: securecookie.New(secret, nil),
+sc:     securecookie.New(secret, nil),
+secure: secure,
 }
 }
 
@@ -50,6 +53,7 @@ Name:     sessionCookieName,
 Value:    encoded,
 Path:     "/",
 HttpOnly: true,
+Secure:   sm.secure,
 SameSite: http.SameSiteLaxMode,
 })
 return nil

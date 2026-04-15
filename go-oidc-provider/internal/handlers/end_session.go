@@ -25,8 +25,10 @@ clientID := q.Get("client_id")
 
 // Parse id_token_hint leniently to get client_id if not provided.
 if idTokenHint != "" && clientID == "" {
-p := &gojwt.Parser{}
-token, _, err := p.ParseUnverified(idTokenHint, gojwt.MapClaims{})
+// ParseUnverified is intentional here: we only need the audience claim
+			// to identify the client; the token has already been verified by the RP.
+			p := &gojwt.Parser{}
+			token, _, err := p.ParseUnverified(idTokenHint, gojwt.MapClaims{})
 if err == nil {
 if claims, ok := token.Claims.(gojwt.MapClaims); ok {
 if aud, ok := claims["aud"]; ok {

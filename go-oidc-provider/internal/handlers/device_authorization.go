@@ -2,7 +2,8 @@ package handlers
 
 import (
 "encoding/json"
-"math/rand"
+"crypto/rand"
+	"math/big"
 "net/http"
 "strings"
 "time"
@@ -19,7 +20,11 @@ const userCodeChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 func generateUserCode() string {
 b := make([]byte, 8)
 for i := range b {
-b[i] = userCodeChars[rand.Intn(len(userCodeChars))]
+n, err := rand.Int(rand.Reader, big.NewInt(int64(len(userCodeChars))))
+		if err != nil {
+			panic("crypto/rand failure: " + err.Error())
+		}
+		b[i] = userCodeChars[n.Int64()]
 }
 return string(b[:4]) + "-" + string(b[4:])
 }
