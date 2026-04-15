@@ -71,7 +71,7 @@ r.Get("/userinfo", handlers.NewUserInfoHandler(p.config, p.keystore))
 r.Post("/userinfo", handlers.NewUserInfoHandler(p.config, p.keystore))
 r.With(clientAuth).Post("/introspect", handlers.NewIntrospectionHandler(p.config, p.keystore, p.store))
 r.With(clientAuth).Post("/revoke", handlers.NewRevocationHandler(p.config, p.keystore, p.store))
-r.Get("/logout", handlers.NewEndSessionHandler(p.config, p.store, sm))
+r.Get("/logout", handlers.NewEndSessionHandler(p.config, p.store, sm, p.keystore))
 
 r.Get("/interaction/{uid}", handlers.NewInteractionGetHandler(p.config, p.store))
 r.Post("/interaction/{uid}/login", handlers.NewInteractionLoginHandler(p.config, p.keystore, p.store, sm))

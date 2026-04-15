@@ -67,5 +67,6 @@ Value:    "",
 Path:     "/",
 MaxAge:   -1,
 HttpOnly: true,
+Secure:   sm.secure,
 })
 }

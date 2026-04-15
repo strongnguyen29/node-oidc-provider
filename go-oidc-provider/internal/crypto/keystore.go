@@ -44,3 +44,8 @@ Use:       "sig",
 },
 }
 }
+
+// PublicKey returns the RSA public key for token verification.
+func (k *Keystore) PublicKey() *rsa.PublicKey {
+return &k.privateKey.PublicKey
+}

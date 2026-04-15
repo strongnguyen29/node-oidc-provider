@@ -17,9 +17,10 @@ json.NewEncoder(w).Encode(map[string]string{
 }
 
 // RedirectOAuthError redirects to redirectURI with OAuth error params.
+// The caller MUST have already validated that redirectURI is registered for the client.
 func RedirectOAuthError(w http.ResponseWriter, r *http.Request, redirectURI, errCode, description, state string) {
 u, err := url.Parse(redirectURI)
-if err != nil {
+if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 WriteOAuthError(w, http.StatusBadRequest, "invalid_request", "invalid redirect_uri")
 return
 }

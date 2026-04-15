@@ -207,7 +207,7 @@ idTokenStr = idt
 }
 
 redirectURL, err := url.Parse(redirectURI)
-if err != nil {
+if err != nil || (redirectURL.Scheme != "http" && redirectURL.Scheme != "https") {
 middleware.WriteOAuthError(w, http.StatusInternalServerError, "server_error", "invalid redirect_uri")
 return
 }
