@@ -279,7 +279,7 @@ config.ClientConfig{
 ## 6. Tùy chỉnh storage adapter
 
 In-memory store mặc định không bền vững — dữ liệu mất sau khi restart.  
-Với production, implement interface `store.Adapter` cho Redis, PostgreSQL, v.v.
+Với production, sử dụng `RedisClusterAdapter` tích hợp sẵn hoặc tự implement interface `store.Adapter`.
 
 ### Interface
 
@@ -299,10 +299,78 @@ type Adapter interface {
 }
 ```
 
-### Ví dụ: Redis adapter
+### Redis Cluster adapter (tích hợp sẵn)
+
+`store.RedisClusterAdapter` hỗ trợ cả **Redis Cluster** (nhiều node) và **Redis standalone**
+(1 node) thông qua `redis.UniversalClient` của go-redis v9.
+
+**Cài đặt dependency:**
+
+```bash
+go get github.com/redis/go-redis/v9@v9.7.0
+```
+
+**Sử dụng — Redis standalone (development / single node):**
 
 ```go
-package redisstore
+import "github.com/strongnguyen29/go-oidc-provider/internal/store"
+
+adapter, err := store.NewRedisClusterAdapter(store.RedisClusterOptions{
+    Addrs:    []string{"localhost:6379"},
+    Password: "",            // để trống nếu không đặt password
+})
+if err != nil {
+    log.Fatalf("redis: %v", err)
+}
+defer adapter.Close()
+
+p, err := provider.New(cfg, adapter)
+```
+
+**Sử dụng — Redis Cluster (production, nhiều node):**
+
+```go
+adapter, err := store.NewRedisClusterAdapter(store.RedisClusterOptions{
+    Addrs: []string{
+        "redis-node-1:6379",
+        "redis-node-2:6380",
+        "redis-node-3:6381",
+    },
+    Password:     "your-redis-password",
+    PoolSize:     20,
+    DialTimeout:  3 * time.Second,
+    ReadTimeout:  1 * time.Second,
+    WriteTimeout: 1 * time.Second,
+})
+if err != nil {
+    log.Fatalf("redis cluster: %v", err)
+}
+defer adapter.Close()
+
+p, err := provider.New(cfg, adapter)
+```
+
+> **Lưu ý:** `NewRedisClusterAdapter` thực hiện `PING` khi khởi tạo.
+> Nếu không kết nối được, lỗi được trả về ngay và server không khởi động.
+
+**Tùy chọn cấu hình (`RedisClusterOptions`):**
+
+| Trường | Kiểu | Mô tả |
+|---|---|---|
+| `Addrs` | `[]string` | Danh sách địa chỉ `host:port` (bắt buộc) |
+| `Password` | `string` | Mật khẩu Redis AUTH |
+| `DB` | `int` | Index database (chỉ dùng với standalone; cluster luôn dùng DB 0) |
+| `PoolSize` | `int` | Số kết nối tối đa mỗi node (mặc định: `runtime.NumCPU × 10`) |
+| `DialTimeout` | `time.Duration` | Timeout khi kết nối (mặc định: 5s) |
+| `ReadTimeout` | `time.Duration` | Timeout khi đọc (mặc định: 3s) |
+| `WriteTimeout` | `time.Duration` | Timeout khi ghi (mặc định: 3s) |
+
+### Tự implement custom adapter
+
+Nếu bạn cần dùng PostgreSQL, MongoDB hay backend khác, implement interface `store.Adapter`:
+
+```go
+package myadapter
 
 import (
     "context"
@@ -310,120 +378,44 @@ import (
     "fmt"
     "time"
 
-    "github.com/redis/go-redis/v9"
+    "github.com/strongnguyen29/go-oidc-provider/internal/models"
 )
 
-type RedisAdapter struct {
-    client *redis.Client
+type MyAdapter struct{ /* your db client */ }
+
+func (a *MyAdapter) Upsert(ctx context.Context, id string, payload interface{}, ttl time.Duration) error {
+    data, _ := json.Marshal(payload)
+    // lưu data + typeName(payload) + expiresAt vào DB của bạn
+    return nil
 }
 
-func New(addr string) *RedisAdapter {
-    return &RedisAdapter{
-        client: redis.NewClient(&redis.Options{Addr: addr}),
-    }
+func (a *MyAdapter) Find(ctx context.Context, id string) (interface{}, error) {
+    // lấy row từ DB, kiểm tra TTL, deserialize sang đúng struct
+    return nil, fmt.Errorf("not implemented")
 }
 
-type entry struct {
-    Payload  json.RawMessage `json:"payload"`
-    Type     string          `json:"type"`
-    Consumed bool            `json:"consumed"`
+func (a *MyAdapter) Consume(ctx context.Context, id string) error {
+    // set consumed = true, giữ nguyên TTL
+    return nil
 }
 
-func (a *RedisAdapter) Upsert(ctx context.Context, id string, payload interface{}, ttl time.Duration) error {
-    data, err := json.Marshal(payload)
-    if err != nil {
-        return err
-    }
-    e := entry{Payload: data, Type: fmt.Sprintf("%T", payload)}
-    raw, err := json.Marshal(e)
-    if err != nil {
-        return err
-    }
-    return a.client.Set(ctx, id, raw, ttl).Err()
-}
-
-func (a *RedisAdapter) Find(ctx context.Context, id string) (interface{}, error) {
-    raw, err := a.client.Get(ctx, id).Bytes()
-    if err == redis.Nil {
-        return nil, fmt.Errorf("not found: %s", id)
-    }
-    if err != nil {
-        return nil, err
-    }
-    var e entry
-    if err := json.Unmarshal(raw, &e); err != nil {
-        return nil, err
-    }
-    // Deserialize theo type (cần type registry)
-    return deserialize(e.Type, e.Payload)
-}
-
-func (a *RedisAdapter) Consume(ctx context.Context, id string) error {
-    raw, err := a.client.Get(ctx, id).Bytes()
-    if err != nil {
-        return err
-    }
-    var e entry
-    json.Unmarshal(raw, &e)
-    e.Consumed = true
-    updated, _ := json.Marshal(e)
-    ttl := a.client.TTL(ctx, id).Val()
-    return a.client.Set(ctx, id, updated, ttl).Err()
-}
-
-func (a *RedisAdapter) Destroy(ctx context.Context, id string) error {
-    return a.client.Del(ctx, id).Err()
+func (a *MyAdapter) Destroy(ctx context.Context, id string) error {
+    // xóa row
+    return nil
 }
 ```
 
-Đăng ký adapter:
+**Type registry** — mỗi entry cần lưu tên type để có thể deserialize đúng:
 
-```go
-adapter := redisstore.New("localhost:6379")
-p, err := provider.New(cfg, adapter)
-```
-
-### Type registry cho deserialization
-
-Provider lưu các struct khác nhau vào store (Session, AuthorizationCode, RefreshToken, ...).  
-Khi implement custom adapter, cần giải quyết việc deserialization:
-
-```go
-import "github.com/strongnguyen29/go-oidc-provider/internal/models"
-
-func deserialize(typeName string, data json.RawMessage) (interface{}, error) {
-    switch typeName {
-    case "*models.Session":
-        var v models.Session
-        json.Unmarshal(data, &v)
-        return &v, nil
-    case "*models.AuthorizationCode":
-        var v models.AuthorizationCode
-        json.Unmarshal(data, &v)
-        return &v, nil
-    case "*models.RefreshToken":
-        var v models.RefreshToken
-        json.Unmarshal(data, &v)
-        return &v, nil
-    case "*models.DeviceCode":
-        var v models.DeviceCode
-        json.Unmarshal(data, &v)
-        return &v, nil
-    case "*models.Grant":
-        var v models.Grant
-        json.Unmarshal(data, &v)
-        return &v, nil
-    case "*models.Interaction":
-        var v models.Interaction
-        json.Unmarshal(data, &v)
-        return &v, nil
-    default:
-        var v interface{}
-        json.Unmarshal(data, &v)
-        return v, nil
-    }
-}
-```
+| Type string | Go struct |
+|---|---|
+| `"Session"` | `*models.Session` |
+| `"AuthorizationCode"` | `*models.AuthorizationCode` |
+| `"RefreshToken"` | `*models.RefreshToken` |
+| `"DeviceCode"` | `*models.DeviceCode` |
+| `"Grant"` | `*models.Grant` |
+| `"Interaction"` | `*models.Interaction` |
+| `"string"` | `string` (dùng cho usercode mapping) |
 
 ---
 
@@ -738,7 +730,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 
 - [ ] **Issuer URL dùng HTTPS**: `Issuer: "https://auth.example.com"` — provider tự bật `Secure` cookie
 - [ ] **CookieSecret cố định**: Đặt `CookieSecret` bằng 32 byte ngẫu nhiên được lưu bền vững (không để trống)
-- [ ] **Persistent storage**: Implement Redis/PostgreSQL adapter thay vì in-memory
+- [ ] **Persistent storage**: Dùng `store.NewRedisClusterAdapter` thay vì in-memory
 - [ ] **Signing key bền vững**: RSA key hiện được tái tạo mỗi lần restart — cần lưu vào KMS/Vault
 - [ ] **PKCE bắt buộc**: Bật `PKCERequired: true` cho tất cả authorization_code clients
 - [ ] **Token TTL phù hợp**: AccessToken ngắn (15-30 phút), RefreshToken dài hạn
