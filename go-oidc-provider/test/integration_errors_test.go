@@ -1,13 +1,18 @@
 package test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/strongnguyen29/go-oidc-provider/internal/config"
+	"github.com/strongnguyen29/go-oidc-provider/pkg/provider"
 )
 
 // ---------------------------------------------------------------------------
@@ -177,6 +182,111 @@ func TestToken_ROPC_InvalidCredentials(t *testing.T) {
 		t.Errorf("expected 401 for invalid credentials, got %d: %s", resp.StatusCode, string(body))
 	}
 }
+
+func TestToken_ROPC_MissingUsername(t *testing.T) {
+	_, srv := newTestProvider(t)
+	defer srv.Close()
+
+	resp, err := http.PostForm(srv.URL+"/token", url.Values{
+		"grant_type":    {"password"},
+		"password":      {"password"},
+		"scope":         {"openid"},
+		"client_id":     {"test-client"},
+		"client_secret": {"test-secret"},
+	})
+	if err != nil {
+		t.Fatalf("ROPC request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		body, _ := io.ReadAll(resp.Body)
+		t.Errorf("expected 400 for missing username, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	var m map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&m)
+	if m["error"] != "invalid_request" {
+		t.Errorf("expected error=invalid_request, got %v", m["error"])
+	}
+}
+
+func TestToken_ROPC_MissingPassword(t *testing.T) {
+	_, srv := newTestProvider(t)
+	defer srv.Close()
+
+	resp, err := http.PostForm(srv.URL+"/token", url.Values{
+		"grant_type":    {"password"},
+		"username":      {"alice"},
+		"scope":         {"openid"},
+		"client_id":     {"test-client"},
+		"client_secret": {"test-secret"},
+	})
+	if err != nil {
+		t.Fatalf("ROPC request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		body, _ := io.ReadAll(resp.Body)
+		t.Errorf("expected 400 for missing password, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	var m map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&m)
+	if m["error"] != "invalid_request" {
+		t.Errorf("expected error=invalid_request, got %v", m["error"])
+	}
+}
+
+func TestToken_ROPC_ClientNotAuthorizedForGrant(t *testing.T) {
+	// Build a provider with a client that does NOT include "password" in GrantTypes.
+	cfg := &config.Config{
+		Clients: []config.ClientConfig{
+			{
+				ID:                      "no-ropc-client",
+				Secret:                  "secret",
+				RedirectURIs:            []string{"https://example.com/callback"},
+				GrantTypes:              []string{"authorization_code", "refresh_token"},
+				TokenEndpointAuthMethod: "client_secret_basic",
+			},
+		},
+		AuthenticateAccount: func(ctx context.Context, login, password string) (*config.Account, error) {
+			return &config.Account{Sub: login}, nil
+		},
+	}
+	p, err := provider.New(cfg, nil)
+	if err != nil {
+		t.Fatalf("failed to create provider: %v", err)
+	}
+	srv := httptest.NewServer(p.Handler())
+	defer srv.Close()
+
+	resp, err := http.PostForm(srv.URL+"/token", url.Values{
+		"grant_type":    {"password"},
+		"username":      {"alice"},
+		"password":      {"password"},
+		"scope":         {"openid"},
+		"client_id":     {"no-ropc-client"},
+		"client_secret": {"secret"},
+	})
+	if err != nil {
+		t.Fatalf("ROPC request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		body, _ := io.ReadAll(resp.Body)
+		t.Errorf("expected 400 unauthorized_client, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	var m map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&m)
+	if m["error"] != "unauthorized_client" {
+		t.Errorf("expected error=unauthorized_client, got %v", m["error"])
+	}
+}
+
 
 // ---------------------------------------------------------------------------
 // Token — refresh_token error cases
