@@ -541,8 +541,9 @@ func TestInteraction_Abort_RedirectsWithAccessDenied(t *testing.T) {
 	}
 
 	// POST /interaction/{uid}/abort.
+	abortCSRF := csrfForInteraction(t, client, srv.URL, uid)
 	abortURL := fmt.Sprintf("%s/interaction/%s/abort", srv.URL, uid)
-	abortResp, err := client.PostForm(abortURL, url.Values{})
+	abortResp, err := client.PostForm(abortURL, url.Values{"csrf_token": {abortCSRF}})
 	if err != nil {
 		t.Fatalf("abort POST failed: %v", err)
 	}

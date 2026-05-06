@@ -4,6 +4,7 @@ import (
 "encoding/json"
 	"fmt"
 "crypto/rand"
+"log/slog"
 	"math/big"
 "net/http"
 "strings"
@@ -11,6 +12,7 @@ import (
 
 "github.com/google/uuid"
 "github.com/strongnguyen29/go-oidc-provider/internal/config"
+"github.com/strongnguyen29/go-oidc-provider/internal/logging"
 "github.com/strongnguyen29/go-oidc-provider/internal/middleware"
 "github.com/strongnguyen29/go-oidc-provider/internal/models"
 "github.com/strongnguyen29/go-oidc-provider/internal/store"
@@ -66,6 +68,13 @@ ExpiresAt:  now.Add(cfg.DeviceCodeTTL).Unix(),
 
 adapter.Upsert(r.Context(), "device:"+deviceCode, dc, cfg.DeviceCodeTTL)
 adapter.Upsert(r.Context(), "usercode:"+userCode, deviceCode, cfg.DeviceCodeTTL)
+
+logging.FromContext(r.Context()).LogAttrs(r.Context(), slog.LevelInfo, "device_code_issued",
+slog.String("client_id", client.ID),
+slog.String("device_code", logging.RedactToken(deviceCode)),
+slog.String("user_code", userCode),
+slog.Any("scopes", scopes),
+)
 
 verificationURI := cfg.Issuer + "/device"
 resp := map[string]interface{}{

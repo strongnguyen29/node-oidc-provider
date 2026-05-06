@@ -1,0 +1,23 @@
+# docker-compose.yml — Redis backing store cho sample example-go.
+#
+# Sample server (main.go) hardcode endpoint "localhost:6379", do đó cách đơn
+# giản nhất là chạy Redis qua compose và OIDC server trực tiếp ở host:
+#
+#   docker compose up -d           # khởi động Redis
+#   go run .                       # khởi động OIDC server (cwd = example-go/)
+#   docker compose down            # dọn dẹp
+#
+# Container publish 6379 ra host nên server localhost:6379 kết nối được ngay.
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: oidc-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5

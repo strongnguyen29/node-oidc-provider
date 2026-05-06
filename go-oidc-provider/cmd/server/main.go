@@ -12,6 +12,11 @@ import (
 func main() {
 cfg := &config.Config{
 Issuer: "http://localhost:9000",
+// LogLevel controls structured-log verbosity. Set to "debug" while
+// developing or troubleshooting to see store ops, decision points, and
+// per-handler trace events. Defaults to "info" (access log + notable
+// events only) when left empty.
+LogLevel: "debug",
 Clients: []config.ClientConfig{
 {
 ID:            "test-client",

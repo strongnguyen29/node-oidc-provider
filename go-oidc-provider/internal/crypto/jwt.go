@@ -81,22 +81,67 @@ token.Header["kid"] = kid
 return token.SignedString(priv)
 }
 
-// ParseAccessToken validates and parses a JWT access token.
+// ParseAccessToken validates and parses a JWT access token. When the token
+// header carries a kid, the matching public key is looked up; otherwise every
+// configured public key is tried so legacy tokens issued before kid pinning
+// still verify during a rotation window.
 func ParseAccessToken(ks *Keystore, tokenString string) (*gojwt.MapClaims, error) {
-priv, _ := ks.SigningKey()
-token, err := gojwt.Parse(tokenString, func(t *gojwt.Token) (interface{}, error) {
-if _, ok := t.Method.(*gojwt.SigningMethodRSA); !ok {
-return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+	keyfunc := func(t *gojwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*gojwt.SigningMethodRSA); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		if kid, ok := t.Header["kid"].(string); ok && kid != "" {
+			if pub := ks.KeyByID(kid); pub != nil {
+				return pub, nil
+			}
+			return nil, fmt.Errorf("unknown key id: %s", kid)
+		}
+		return ks.PublicKey(), nil
+	}
+	token, err := gojwt.Parse(tokenString, keyfunc)
+	if err == nil {
+		if claims, ok := token.Claims.(gojwt.MapClaims); ok && token.Valid {
+			return &claims, nil
+		}
+		return nil, fmt.Errorf("invalid token")
+	}
+
+	// Fallback: token header had no kid (or unknown kid). Try each registered
+	// public key in turn so we can still verify legacy tokens.
+	if hdr, _ := extractKidHeader(tokenString); hdr != "" {
+		return nil, err
+	}
+	pubs := ks.PublicKeys()
+	if len(pubs) <= 1 {
+		return nil, err
+	}
+	for _, pub := range pubs[1:] {
+		key := pub
+		token, err2 := gojwt.Parse(tokenString, func(t *gojwt.Token) (interface{}, error) {
+			if _, ok := t.Method.(*gojwt.SigningMethodRSA); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+			}
+			return key, nil
+		})
+		if err2 == nil {
+			if claims, ok := token.Claims.(gojwt.MapClaims); ok && token.Valid {
+				return &claims, nil
+			}
+		}
+	}
+	return nil, err
 }
-return &priv.PublicKey, nil
-})
-if err != nil {
-return nil, err
-}
-if claims, ok := token.Claims.(gojwt.MapClaims); ok && token.Valid {
-return &claims, nil
-}
-return nil, fmt.Errorf("invalid token")
+
+// extractKidHeader pulls the kid header from a JWT without verifying its
+// signature. Returns an empty string when the header is absent or malformed.
+func extractKidHeader(tokenString string) (string, error) {
+	parser := gojwt.NewParser()
+	t, _, err := parser.ParseUnverified(tokenString, gojwt.MapClaims{})
+	if err != nil || t == nil {
+		return "", err
+	}
+	kid, _ := t.Header["kid"].(string)
+	return kid, nil
 }
 
 // ComputeAtHash computes the at_hash claim value from an access token string.

@@ -1,0 +1,12 @@
+- generic [active] [ref=e1]:
+  - heading "Authorize test-client" [level=2] [ref=e2]
+  - paragraph [ref=e3]: "The application is requesting access to:"
+  - generic [ref=e4]:
+    - generic [ref=e6]:
+      - checkbox "openid" [checked] [ref=e7]
+      - text: openid
+    - generic [ref=e9]:
+      - checkbox "profile" [checked] [ref=e10]
+      - text: profile
+    - button "Allow" [ref=e11] [cursor=pointer]
+  - button "Deny" [ref=e13] [cursor=pointer]

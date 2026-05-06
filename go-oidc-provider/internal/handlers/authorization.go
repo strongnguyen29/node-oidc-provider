@@ -1,13 +1,13 @@
 package handlers
 
 import (
+"log/slog"
 "net/http"
 "strings"
-"time"
 
-"github.com/google/uuid"
 "github.com/strongnguyen29/go-oidc-provider/internal/config"
 "github.com/strongnguyen29/go-oidc-provider/internal/crypto"
+"github.com/strongnguyen29/go-oidc-provider/internal/logging"
 "github.com/strongnguyen29/go-oidc-provider/internal/middleware"
 "github.com/strongnguyen29/go-oidc-provider/internal/models"
 "github.com/strongnguyen29/go-oidc-provider/internal/store"
@@ -27,15 +27,31 @@ codeChallenge := q.Get("code_challenge")
 codeChallengeMethod := q.Get("code_challenge_method")
 prompt := q.Get("prompt")
 
+log := logging.FromContext(r.Context())
+log.LogAttrs(r.Context(), slog.LevelDebug, "authorize_request",
+slog.String("client_id", clientID),
+slog.String("response_type", responseType),
+slog.String("redirect_uri", redirectURI),
+slog.String("scope", scope),
+slog.String("prompt", prompt),
+slog.Bool("pkce", codeChallenge != ""),
+)
+
 // Validate client.
 client := cfg.FindClient(clientID)
 if client == nil {
+log.LogAttrs(r.Context(), slog.LevelWarn, "authorize_unknown_client",
+slog.String("client_id", clientID))
 middleware.WriteOAuthError(w, http.StatusBadRequest, "invalid_client", "unknown client_id")
 return
 }
 
 // Validate redirect_uri.
 if !containsString(client.RedirectURIs, redirectURI) {
+log.LogAttrs(r.Context(), slog.LevelWarn, "authorize_redirect_uri_not_registered",
+slog.String("client_id", clientID),
+slog.String("redirect_uri", redirectURI),
+)
 middleware.WriteOAuthError(w, http.StatusBadRequest, "invalid_redirect_uri", "redirect_uri not registered")
 return
 }
@@ -45,9 +61,20 @@ if responseType == "" {
 middleware.RedirectOAuthError(w, r, redirectURI, client.RedirectURIs, "invalid_request", "response_type is required", state)
 return
 }
+// RFC 6749 §3.1.1 / OIDC §3.1.2.4 — reject response_types not registered
+// for the client. Empty ResponseTypes is treated as permissive for
+// backward compatibility (a startup warning surfaces this misconfig).
+if len(client.ResponseTypes) > 0 && !responseTypeAllowed(responseType, client.ResponseTypes) {
+middleware.RedirectOAuthError(w, r, redirectURI, client.RedirectURIs, "unauthorized_client", "response_type not allowed for this client", state)
+return
+}
 
 // PKCE enforcement.
 if cfg.PKCERequired && strings.Contains(responseType, "code") && codeChallenge == "" {
+log.LogAttrs(r.Context(), slog.LevelWarn, "authorize_pkce_missing",
+slog.String("client_id", clientID),
+slog.String("response_type", responseType),
+)
 middleware.RedirectOAuthError(w, r, redirectURI, client.RedirectURIs, "invalid_request", "code_challenge required", state)
 return
 }
@@ -81,40 +108,6 @@ session = s
 }
 }
 
-// Determine if interaction is needed.
-interactionPrompt := ""
-
-if session == nil || prompt == "login" {
-interactionPrompt = "login"
-} else if prompt == "select_account" {
-interactionPrompt = "select_account"
-} else {
-cs := session.Clients[clientID]
-requestedScopes := strings.Fields(scope)
-if cs == nil || prompt == "consent" || !hasAllScopes(cs.Consented, requestedScopes) {
-interactionPrompt = "consent"
-}
-}
-
-if interactionPrompt != "" {
-uid := uuid.New().String()
-interaction := &models.Interaction{
-UID:       uid,
-Prompt:    interactionPrompt,
-ClientID:  clientID,
-Params:    params,
-CreatedAt: time.Now().Unix(),
-ExpiresAt: time.Now().Add(10 * time.Minute).Unix(),
-}
-if session != nil {
-interaction.AccountID = session.AccountID
-interaction.SessionID = session.ID
-}
-adapter.Upsert(r.Context(), "interaction:"+uid, interaction, 10*time.Minute)
-http.Redirect(w, r, "/interaction/"+uid, http.StatusFound)
-return
-}
-
-completeAuthFlow(w, r, cfg, ks, adapter, sm, session, params)
+dispatchNext(w, r, cfg, ks, adapter, sm, client, session, params)
 }
 }

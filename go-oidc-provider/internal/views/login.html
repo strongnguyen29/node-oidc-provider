@@ -11,6 +11,7 @@ button{width:100%;padding:10px;background:#0070f3;color:#fff;border:none;cursor:
 {{if .Error}}<p class="err">{{.Error}}</p>{{end}}
 <form method="POST" action="/interaction/{{.UID}}/login">
   <input type="hidden" name="uid" value="{{.UID}}">
+  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
   <label>Username<input type="text" name="login" autocomplete="username" required></label>
   <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
   <button type="submit">Sign In</button>

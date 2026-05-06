@@ -183,10 +183,12 @@ uid = uid[:idx]
 t.Logf("Login interaction UID: %s", uid)
 
 // Step 2: POST /interaction/{uid}/login.
+loginCSRF := csrfForInteraction(t, client, srv.URL, uid)
 loginURL := fmt.Sprintf("%s/interaction/%s/login", srv.URL, uid)
 loginResp, err := client.PostForm(loginURL, url.Values{
-"login":    {"alice"},
-"password": {"password"},
+"login":      {"alice"},
+"password":   {"password"},
+"csrf_token": {loginCSRF},
 })
 if err != nil {
 t.Fatalf("login request failed: %v", err)
@@ -206,9 +208,11 @@ consentUID = consentUID[:idx]
 t.Logf("Consent interaction UID: %s", consentUID)
 
 // POST consent.
+consentCSRF := csrfForInteraction(t, client, srv.URL, consentUID)
 consentURL := fmt.Sprintf("%s/interaction/%s/confirm", srv.URL, consentUID)
 consentResp, err := client.PostForm(consentURL, url.Values{
 "granted_scopes": {"openid", "profile"},
+"csrf_token":     {consentCSRF},
 })
 if err != nil {
 t.Fatalf("consent request failed: %v", err)
@@ -505,8 +509,10 @@ t.Logf("Expected authorization_pending, got: %v (this is OK if device was alread
 browserClient := newTestClient(srv)
 
 // POST /device with user_code (no session) -> redirected to login interaction.
+deviceCSRF := csrfForDevice(t, browserClient, srv.URL)
 devicePostResp, err := browserClient.PostForm(srv.URL+"/device", url.Values{
-"user_code": {userCode},
+"user_code":  {userCode},
+"csrf_token": {deviceCSRF},
 })
 if err != nil {
 t.Fatalf("device POST failed: %v", err)
@@ -523,11 +529,13 @@ interactionUID = interactionUID[:idx]
 }
 
 // Login.
+deviceLoginCSRF := csrfForInteraction(t, browserClient, srv.URL, interactionUID)
 loginResp, err := browserClient.PostForm(
 fmt.Sprintf("%s/interaction/%s/login", srv.URL, interactionUID),
 url.Values{
-"login":    {"dave"},
-"password": {"password"},
+"login":      {"dave"},
+"password":   {"password"},
+"csrf_token": {deviceLoginCSRF},
 },
 )
 if err != nil {

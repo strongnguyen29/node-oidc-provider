@@ -2,11 +2,13 @@ package handlers
 
 import (
 "html/template"
+"log/slog"
 "net/http"
 "net/url"
 
 "github.com/strongnguyen29/go-oidc-provider/internal/config"
 "github.com/strongnguyen29/go-oidc-provider/internal/crypto"
+"github.com/strongnguyen29/go-oidc-provider/internal/logging"
 "github.com/strongnguyen29/go-oidc-provider/internal/middleware"
 "github.com/strongnguyen29/go-oidc-provider/internal/store"
 "github.com/strongnguyen29/go-oidc-provider/internal/views"
@@ -55,6 +57,11 @@ if sessionID != "" {
 adapter.Destroy(r.Context(), "session:"+sessionID)
 sm.ClearSession(w)
 }
+logging.FromContext(r.Context()).LogAttrs(r.Context(), slog.LevelInfo, "logout",
+slog.String("client_id", clientID),
+slog.Bool("had_session", sessionID != ""),
+slog.Bool("had_id_token_hint", idTokenHint != ""),
+)
 
 // Validate post_logout_redirect_uri against the registered list and redirect using
 // the registered value (not the raw user-supplied string) to prevent open redirect.

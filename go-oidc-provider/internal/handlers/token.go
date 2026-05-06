@@ -2,12 +2,14 @@ package handlers
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/strongnguyen29/go-oidc-provider/internal/config"
 	"github.com/strongnguyen29/go-oidc-provider/internal/crypto"
+	"github.com/strongnguyen29/go-oidc-provider/internal/logging"
 	"github.com/strongnguyen29/go-oidc-provider/internal/middleware"
 	"github.com/strongnguyen29/go-oidc-provider/internal/models"
 	"github.com/strongnguyen29/go-oidc-provider/internal/store"
@@ -28,6 +30,24 @@ func NewTokenHandler(cfg *config.Config, ks *crypto.Keystore, adapter store.Adap
 		}
 
 		grantType := r.FormValue("grant_type")
+
+		log := logging.FromContext(r.Context())
+		log.LogAttrs(r.Context(), slog.LevelDebug, "token_request",
+			slog.String("client_id", client.ID),
+			slog.String("grant_type", grantType),
+		)
+
+		// RFC 6749 §5.2 — reject grant types the client is not registered for
+		// before doing any per-grant work. Empty GrantTypes is treated as
+		// permissive for backward compatibility (warning logged at startup).
+		if len(client.GrantTypes) > 0 && !containsString(client.GrantTypes, grantType) {
+			log.LogAttrs(r.Context(), slog.LevelWarn, "token_grant_type_not_allowed",
+				slog.String("client_id", client.ID),
+				slog.String("grant_type", grantType),
+			)
+			middleware.WriteOAuthError(w, http.StatusBadRequest, "unauthorized_client", "client not authorized for grant_type="+grantType)
+			return
+		}
 
 		switch grantType {
 		case "authorization_code":
@@ -66,6 +86,16 @@ func handleAuthorizationCode(w http.ResponseWriter, r *http.Request, cfg *config
 	}
 
 	if ac.Consumed {
+		// RFC 6749 §10.5 — a re-presented code indicates either a buggy
+		// client or a stolen code. Revoke every token issued under the
+		// same grant so an attacker who obtained the code cannot continue
+		// to exchange the previously rotated tokens.
+		logging.FromContext(r.Context()).LogAttrs(r.Context(), slog.LevelWarn, "auth_code_replay_detected",
+			slog.String("client_id", client.ID),
+			slog.String("code", logging.RedactToken(code)),
+			slog.String("grant_id", ac.GrantID),
+		)
+		revokeGrantFamily(r.Context(), adapter, ac.GrantID)
 		middleware.WriteOAuthError(w, http.StatusBadRequest, "invalid_grant", "authorization code already used")
 		return
 	}
@@ -93,6 +123,11 @@ func handleAuthorizationCode(w http.ResponseWriter, r *http.Request, cfg *config
 			method = "plain"
 		}
 		if !crypto.VerifyPKCE(method, codeVerifier, ac.CodeChallenge) {
+			logging.FromContext(r.Context()).LogAttrs(r.Context(), slog.LevelWarn, "pkce_verification_failed",
+				slog.String("client_id", client.ID),
+				slog.String("code", logging.RedactToken(code)),
+				slog.String("method", method),
+			)
 			middleware.WriteOAuthError(w, http.StatusBadRequest, "invalid_grant", "PKCE verification failed")
 			return
 		}
@@ -103,7 +138,7 @@ func handleAuthorizationCode(w http.ResponseWriter, r *http.Request, cfg *config
 	adapter.Upsert(r.Context(), "code:"+code, ac, time.Until(time.Unix(ac.ExpiresAt, 0)))
 
 	now := time.Now()
-	at, _, err := issueAccessToken(cfg, ks, adapter, r.Context(), ac.AccountID, client.ID, ac.Scopes, now)
+	at, jti, err := issueAccessToken(cfg, ks, adapter, r.Context(), ac.AccountID, client.ID, ac.GrantID, ac.Scopes, now)
 	if err != nil {
 		middleware.WriteOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue access token")
 		return
@@ -114,6 +149,15 @@ func handleAuthorizationCode(w http.ResponseWriter, r *http.Request, cfg *config
 		middleware.WriteOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue refresh token")
 		return
 	}
+
+	logging.FromContext(r.Context()).LogAttrs(r.Context(), slog.LevelInfo, "token_issued",
+		slog.String("grant_type", "authorization_code"),
+		slog.String("client_id", client.ID),
+		slog.String("account_id", ac.AccountID),
+		slog.String("grant_id", ac.GrantID),
+		slog.String("jti", logging.RedactToken(jti)),
+		slog.Any("scopes", ac.Scopes),
+	)
 
 	resp := map[string]interface{}{
 		"access_token":  at,
@@ -135,6 +179,12 @@ func handleAuthorizationCode(w http.ResponseWriter, r *http.Request, cfg *config
 		idt, err := issueIDToken(cfg, ks, r.Context(), ac.AccountID, client.ID, ac.Nonce, atHash, authTime, now)
 		if err == nil {
 			resp["id_token"] = idt
+		} else {
+			logging.FromContext(r.Context()).LogAttrs(r.Context(), slog.LevelError, "id_token_issue_failed",
+				slog.String("client_id", client.ID),
+				slog.String("account_id", ac.AccountID),
+				slog.String("err", err.Error()),
+			)
 		}
 	}
 
@@ -162,6 +212,16 @@ func handleRefreshToken(w http.ResponseWriter, r *http.Request, cfg *config.Conf
 	}
 
 	if rt.Consumed {
+		// Refresh-token rotation: a replay is the canonical signal of a
+		// leaked or stolen token. Burn the entire grant family so the
+		// rotated refresh token (and any access token issued from it)
+		// stop working immediately.
+		logging.FromContext(r.Context()).LogAttrs(r.Context(), slog.LevelWarn, "refresh_token_replay_detected",
+			slog.String("client_id", client.ID),
+			slog.String("rt_id", logging.RedactToken(rtID)),
+			slog.String("grant_id", rt.GrantID),
+		)
+		revokeGrantFamily(r.Context(), adapter, rt.GrantID)
 		middleware.WriteOAuthError(w, http.StatusBadRequest, "invalid_grant", "refresh token already used")
 		return
 	}
@@ -179,7 +239,7 @@ func handleRefreshToken(w http.ResponseWriter, r *http.Request, cfg *config.Conf
 	adapter.Upsert(r.Context(), "rt:"+rtID, rt, time.Until(time.Unix(rt.ExpiresAt, 0)))
 
 	now := time.Now()
-	at, _, err := issueAccessToken(cfg, ks, adapter, r.Context(), rt.AccountID, client.ID, rt.Scopes, now)
+	at, jti, err := issueAccessToken(cfg, ks, adapter, r.Context(), rt.AccountID, client.ID, rt.GrantID, rt.Scopes, now)
 	if err != nil {
 		middleware.WriteOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue access token")
 		return
@@ -190,6 +250,15 @@ func handleRefreshToken(w http.ResponseWriter, r *http.Request, cfg *config.Conf
 		middleware.WriteOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue refresh token")
 		return
 	}
+
+	logging.FromContext(r.Context()).LogAttrs(r.Context(), slog.LevelInfo, "token_issued",
+		slog.String("grant_type", "refresh_token"),
+		slog.String("client_id", client.ID),
+		slog.String("account_id", rt.AccountID),
+		slog.String("grant_id", rt.GrantID),
+		slog.String("jti", logging.RedactToken(jti)),
+		slog.Any("scopes", rt.Scopes),
+	)
 
 	resp := map[string]interface{}{
 		"access_token":  at,
@@ -239,7 +308,7 @@ func handleDeviceCode(w http.ResponseWriter, r *http.Request, cfg *config.Config
 	}
 
 	now := time.Now()
-	at, _, err := issueAccessToken(cfg, ks, adapter, r.Context(), dc.AccountID, client.ID, dc.Scopes, now)
+	at, jti, err := issueAccessToken(cfg, ks, adapter, r.Context(), dc.AccountID, client.ID, dc.GrantID, dc.Scopes, now)
 	if err != nil {
 		middleware.WriteOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue access token")
 		return
@@ -250,6 +319,15 @@ func handleDeviceCode(w http.ResponseWriter, r *http.Request, cfg *config.Config
 		middleware.WriteOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue refresh token")
 		return
 	}
+
+	logging.FromContext(r.Context()).LogAttrs(r.Context(), slog.LevelInfo, "token_issued",
+		slog.String("grant_type", "device_code"),
+		slog.String("client_id", client.ID),
+		slog.String("account_id", dc.AccountID),
+		slog.String("grant_id", dc.GrantID),
+		slog.String("jti", logging.RedactToken(jti)),
+		slog.Any("scopes", dc.Scopes),
+	)
 
 	// Mark device code consumed.
 	adapter.Destroy(r.Context(), "device:"+dc.DeviceCode)
@@ -267,12 +345,6 @@ func handleDeviceCode(w http.ResponseWriter, r *http.Request, cfg *config.Config
 }
 
 func handleROPC(w http.ResponseWriter, r *http.Request, cfg *config.Config, ks *crypto.Keystore, adapter store.Adapter, client *config.ClientConfig) {
-	// Verify the client is authorized to use the password grant.
-	if !containsString(client.GrantTypes, "password") {
-		middleware.WriteOAuthError(w, http.StatusBadRequest, "unauthorized_client", "client is not authorized for grant_type=password")
-		return
-	}
-
 	if cfg.AuthenticateAccount == nil {
 		middleware.WriteOAuthError(w, http.StatusBadRequest, "unsupported_grant_type", "ROPC not configured")
 		return
@@ -289,6 +361,11 @@ func handleROPC(w http.ResponseWriter, r *http.Request, cfg *config.Config, ks *
 
 	account, err := cfg.AuthenticateAccount(r.Context(), username, password)
 	if err != nil || account == nil {
+		logging.FromContext(r.Context()).LogAttrs(r.Context(), slog.LevelWarn, "ropc_login_failed",
+			slog.String("client_id", client.ID),
+			slog.String("login", username),
+			slog.Bool("auth_error", err != nil),
+		)
 		middleware.WriteOAuthError(w, http.StatusUnauthorized, "invalid_grant", "invalid credentials")
 		return
 	}
@@ -296,11 +373,20 @@ func handleROPC(w http.ResponseWriter, r *http.Request, cfg *config.Config, ks *
 	scopes := strings.Fields(scope)
 	now := time.Now()
 
-	at, _, err := issueAccessToken(cfg, ks, adapter, r.Context(), account.Sub, client.ID, scopes, now)
+	// ROPC has no associated grant, so pass an empty grantID; family bookkeeping is skipped.
+	at, jti, err := issueAccessToken(cfg, ks, adapter, r.Context(), account.Sub, client.ID, "", scopes, now)
 	if err != nil {
 		middleware.WriteOAuthError(w, http.StatusInternalServerError, "server_error", "failed to issue access token")
 		return
 	}
+
+	logging.FromContext(r.Context()).LogAttrs(r.Context(), slog.LevelInfo, "token_issued",
+		slog.String("grant_type", "password"),
+		slog.String("client_id", client.ID),
+		slog.String("account_id", account.Sub),
+		slog.String("jti", logging.RedactToken(jti)),
+		slog.Any("scopes", scopes),
+	)
 
 	resp := map[string]interface{}{
 		"access_token": at,

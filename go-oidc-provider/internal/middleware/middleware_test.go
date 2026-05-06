@@ -386,3 +386,68 @@ func TestSessionMiddleware_SecureFlag_FalseForHTTP(t *testing.T) {
 		}
 	}
 }
+
+// ============================================================
+// CSRF token (Fix #10)
+// ============================================================
+
+func TestCSRFTokenDeterministicForSameInputs(t *testing.T) {
+	secret := []byte("a-secret-thats-32-bytes-long-aaaaaa")
+	sm := middleware.NewSessionMiddleware(secret, false)
+
+	a := sm.CSRFToken("uid-1")
+	b := sm.CSRFToken("uid-1")
+	if a != b {
+		t.Errorf("expected same token for same uid, got %q vs %q", a, b)
+	}
+	if a == "" {
+		t.Error("CSRFToken returned empty string")
+	}
+}
+
+func TestCSRFTokenDiffersByID(t *testing.T) {
+	secret := []byte("a-secret-thats-32-bytes-long-aaaaaa")
+	sm := middleware.NewSessionMiddleware(secret, false)
+
+	if sm.CSRFToken("uid-1") == sm.CSRFToken("uid-2") {
+		t.Error("expected different tokens for different ids")
+	}
+}
+
+func TestCSRFTokenDiffersBySecret(t *testing.T) {
+	a := middleware.NewSessionMiddleware([]byte("secret-a-pad-out-to-32-bytes-aaaa"), false)
+	b := middleware.NewSessionMiddleware([]byte("secret-b-pad-out-to-32-bytes-bbbb"), false)
+
+	if a.CSRFToken("uid") == b.CSRFToken("uid") {
+		t.Error("expected different tokens for different cookie secrets")
+	}
+}
+
+func TestValidateCSRFAcceptsCorrectToken(t *testing.T) {
+	sm := middleware.NewSessionMiddleware([]byte("secret-pad-out-to-32-bytes-aaaaaaa"), false)
+	tok := sm.CSRFToken("uid-x")
+	if !sm.ValidateCSRF("uid-x", tok) {
+		t.Error("ValidateCSRF returned false for valid token")
+	}
+}
+
+func TestValidateCSRFRejectsTampered(t *testing.T) {
+	sm := middleware.NewSessionMiddleware([]byte("secret-pad-out-to-32-bytes-aaaaaaa"), false)
+	tok := sm.CSRFToken("uid-x")
+	if sm.ValidateCSRF("uid-x", tok+"x") {
+		t.Error("ValidateCSRF accepted tampered token")
+	}
+	if sm.ValidateCSRF("uid-y", tok) {
+		t.Error("ValidateCSRF accepted token bound to different uid")
+	}
+}
+
+func TestValidateCSRFRejectsEmpty(t *testing.T) {
+	sm := middleware.NewSessionMiddleware([]byte("secret-pad-out-to-32-bytes-aaaaaaa"), false)
+	if sm.ValidateCSRF("uid", "") {
+		t.Error("ValidateCSRF accepted empty token")
+	}
+	if sm.ValidateCSRF("", sm.CSRFToken("uid")) {
+		t.Error("ValidateCSRF accepted empty id")
+	}
+}

@@ -42,9 +42,14 @@ func TestE2E_AuthCodeFlow_WithPKCE_FullRoundTrip(t *testing.T) {
 	uid := extractUID(resp.Request.URL.String())
 
 	// ----- Step 2: login -----
+	loginCSRF := csrfForInteraction(t, client, srv.URL, uid)
 	loginResp, err := client.PostForm(
 		fmt.Sprintf("%s/interaction/%s/login", srv.URL, uid),
-		url.Values{"login": {"e2e-user"}, "password": {"password"}},
+		url.Values{
+			"login":      {"e2e-user"},
+			"password":   {"password"},
+			"csrf_token": {loginCSRF},
+		},
 	)
 	if err != nil {
 		t.Fatalf("step 2: login POST: %v", err)
@@ -62,9 +67,13 @@ func TestE2E_AuthCodeFlow_WithPKCE_FullRoundTrip(t *testing.T) {
 	if strings.Contains(finalURL, "/interaction/") {
 		// Consent step.
 		consentUID := extractUID(finalURL)
+		consentCSRF := csrfForInteraction(t, client, srv.URL, consentUID)
 		consentResp, err := client.PostForm(
 			fmt.Sprintf("%s/interaction/%s/confirm", srv.URL, consentUID),
-			url.Values{"granted_scopes": {"openid", "profile", "email", "offline_access"}},
+			url.Values{
+				"granted_scopes": {"openid", "profile", "email", "offline_access"},
+				"csrf_token":     {consentCSRF},
+			},
 		)
 		if err != nil {
 			t.Fatalf("step 2b: consent POST: %v", err)
@@ -212,9 +221,14 @@ func TestE2E_SessionReuse_SkipsLogin(t *testing.T) {
 	}
 	uid := extractUID(firstURL)
 
+	loginCSRF := csrfForInteraction(t, client, srv.URL, uid)
 	loginResp, err := client.PostForm(
 		fmt.Sprintf("%s/interaction/%s/login", srv.URL, uid),
-		url.Values{"login": {"session-user"}, "password": {"password"}},
+		url.Values{
+			"login":      {"session-user"},
+			"password":   {"password"},
+			"csrf_token": {loginCSRF},
+		},
 	)
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
@@ -230,9 +244,13 @@ func TestE2E_SessionReuse_SkipsLogin(t *testing.T) {
 	}
 	if strings.Contains(afterLogin, "/interaction/") {
 		consentUID := extractUID(afterLogin)
+		consentCSRF := csrfForInteraction(t, client, srv.URL, consentUID)
 		cr, _ := client.PostForm(
 			fmt.Sprintf("%s/interaction/%s/confirm", srv.URL, consentUID),
-			url.Values{"granted_scopes": {"openid"}},
+			url.Values{
+				"granted_scopes": {"openid"},
+				"csrf_token":     {consentCSRF},
+			},
 		)
 		if cr != nil {
 			cr.Body.Close()
@@ -263,9 +281,13 @@ func TestE2E_SessionReuse_SkipsLogin(t *testing.T) {
 	// If we got a consent prompt, confirm it.
 	if strings.Contains(final2, "/interaction/") {
 		uid2 := extractUID(final2)
+		consentCSRF2 := csrfForInteraction(t, client, srv.URL, uid2)
 		cr2, _ := client.PostForm(
 			fmt.Sprintf("%s/interaction/%s/confirm", srv.URL, uid2),
-			url.Values{"granted_scopes": {"openid"}},
+			url.Values{
+				"granted_scopes": {"openid"},
+				"csrf_token":     {consentCSRF2},
+			},
 		)
 		if cr2 != nil {
 			defer cr2.Body.Close()
@@ -512,9 +534,14 @@ func TestE2E_PromptLogin_ForcesReAuth(t *testing.T) {
 		}
 		resp.Body.Close()
 		uid := extractUID(resp.Request.URL.String())
+		csrf := csrfForInteraction(t, client, srv.URL, uid)
 		lr, _ := client.PostForm(
 			fmt.Sprintf("%s/interaction/%s/login", srv.URL, uid),
-			url.Values{"login": {username}, "password": {"password"}},
+			url.Values{
+				"login":      {username},
+				"password":   {"password"},
+				"csrf_token": {csrf},
+			},
 		)
 		if lr != nil {
 			lr.Body.Close()
@@ -661,8 +688,10 @@ func TestE2E_DeviceFlow_FullScenario(t *testing.T) {
 
 	// Step 3: simulate user authorizing via browser.
 	browserClient := newTestClient(srv)
+	deviceCSRF := csrfForDevice(t, browserClient, srv.URL)
 	devicePostResp, err := browserClient.PostForm(srv.URL+"/device", url.Values{
-		"user_code": {userCode},
+		"user_code":  {userCode},
+		"csrf_token": {deviceCSRF},
 	})
 	if err != nil {
 		t.Fatalf("device POST failed: %v", err)
@@ -672,9 +701,14 @@ func TestE2E_DeviceFlow_FullScenario(t *testing.T) {
 	finalURL := devicePostResp.Request.URL.String()
 	if strings.Contains(finalURL, "/interaction/") {
 		uid := extractUID(finalURL)
+		deviceLoginCSRF := csrfForInteraction(t, browserClient, srv.URL, uid)
 		loginResp, err := browserClient.PostForm(
 			fmt.Sprintf("%s/interaction/%s/login", srv.URL, uid),
-			url.Values{"login": {"device-user"}, "password": {"password"}},
+			url.Values{
+				"login":      {"device-user"},
+				"password":   {"password"},
+				"csrf_token": {deviceLoginCSRF},
+			},
 		)
 		if err != nil {
 			t.Fatalf("device login failed: %v", err)

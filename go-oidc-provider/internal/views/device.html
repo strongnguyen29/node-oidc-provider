@@ -16,6 +16,7 @@ button{width:100%;padding:10px;background:#0070f3;color:#fff;border:none;cursor:
 {{if .Error}}<p class="err">{{.Error}}</p>{{end}}
 <p>Enter the code shown on your device:</p>
 <form method="POST" action="/device">
+  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
   <input type="text" name="user_code" placeholder="XXXX-XXXX" value="{{.UserCode}}" required>
   <button type="submit">Authorize</button>
 </form>

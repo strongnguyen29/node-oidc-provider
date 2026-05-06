@@ -35,7 +35,7 @@ func newCfg() *config.Config {
 				Secret:       "secret-1",
 				RedirectURIs: []string{"https://app.example.com/cb"},
 				PostLogoutRedirectURIs: []string{"https://app.example.com/"},
-				GrantTypes:             []string{"authorization_code", "refresh_token", "password"},
+				GrantTypes:             []string{"authorization_code", "refresh_token", "password", "urn:ietf:params:oauth:grant-type:device_code"},
 				Scopes:                 []string{"openid", "profile", "email", "offline_access"},
 				TokenEndpointAuthMethod: "client_secret_basic",
 			},
@@ -284,9 +284,12 @@ func TestJWKSHandler_ContentType(t *testing.T) {
 func TestUserInfoHandler_ValidToken_ReturnsSub(t *testing.T) {
 	cfg := newCfg()
 	ks := newKS(t)
+	adapter := newAdapter()
+	defer adapter.Stop()
 	at := issueAT(t, cfg, ks, "alice", "openid profile")
+	storeJTI(t, adapter, at, ks, cfg)
 
-	h := handlers.NewUserInfoHandler(cfg, ks)
+	h := handlers.NewUserInfoHandler(cfg, ks, adapter)
 	req := httptest.NewRequest("GET", "/userinfo", nil)
 	req.Header.Set("Authorization", "Bearer "+at)
 	rr := httptest.NewRecorder()
@@ -304,9 +307,12 @@ func TestUserInfoHandler_ValidToken_ReturnsSub(t *testing.T) {
 func TestUserInfoHandler_ProfileScope_IncludesName(t *testing.T) {
 	cfg := newCfg()
 	ks := newKS(t)
+	adapter := newAdapter()
+	defer adapter.Stop()
 	at := issueAT(t, cfg, ks, "bob", "openid profile")
+	storeJTI(t, adapter, at, ks, cfg)
 
-	h := handlers.NewUserInfoHandler(cfg, ks)
+	h := handlers.NewUserInfoHandler(cfg, ks, adapter)
 	req := httptest.NewRequest("GET", "/userinfo", nil)
 	req.Header.Set("Authorization", "Bearer "+at)
 	rr := httptest.NewRecorder()
@@ -321,9 +327,12 @@ func TestUserInfoHandler_ProfileScope_IncludesName(t *testing.T) {
 func TestUserInfoHandler_NoProfileScope_OmitsName(t *testing.T) {
 	cfg := newCfg()
 	ks := newKS(t)
+	adapter := newAdapter()
+	defer adapter.Stop()
 	at := issueAT(t, cfg, ks, "carol", "openid") // no profile
+	storeJTI(t, adapter, at, ks, cfg)
 
-	h := handlers.NewUserInfoHandler(cfg, ks)
+	h := handlers.NewUserInfoHandler(cfg, ks, adapter)
 	req := httptest.NewRequest("GET", "/userinfo", nil)
 	req.Header.Set("Authorization", "Bearer "+at)
 	rr := httptest.NewRecorder()
@@ -338,9 +347,12 @@ func TestUserInfoHandler_NoProfileScope_OmitsName(t *testing.T) {
 func TestUserInfoHandler_EmailScope_IncludesEmail(t *testing.T) {
 	cfg := newCfg()
 	ks := newKS(t)
+	adapter := newAdapter()
+	defer adapter.Stop()
 	at := issueAT(t, cfg, ks, "dave", "openid email")
+	storeJTI(t, adapter, at, ks, cfg)
 
-	h := handlers.NewUserInfoHandler(cfg, ks)
+	h := handlers.NewUserInfoHandler(cfg, ks, adapter)
 	req := httptest.NewRequest("GET", "/userinfo", nil)
 	req.Header.Set("Authorization", "Bearer "+at)
 	rr := httptest.NewRecorder()
@@ -355,9 +367,12 @@ func TestUserInfoHandler_EmailScope_IncludesEmail(t *testing.T) {
 func TestUserInfoHandler_NoEmailScope_OmitsEmail(t *testing.T) {
 	cfg := newCfg()
 	ks := newKS(t)
+	adapter := newAdapter()
+	defer adapter.Stop()
 	at := issueAT(t, cfg, ks, "eve", "openid profile") // no email scope
+	storeJTI(t, adapter, at, ks, cfg)
 
-	h := handlers.NewUserInfoHandler(cfg, ks)
+	h := handlers.NewUserInfoHandler(cfg, ks, adapter)
 	req := httptest.NewRequest("GET", "/userinfo", nil)
 	req.Header.Set("Authorization", "Bearer "+at)
 	rr := httptest.NewRecorder()
@@ -372,19 +387,26 @@ func TestUserInfoHandler_NoEmailScope_OmitsEmail(t *testing.T) {
 func TestUserInfoHandler_NoToken_Returns401(t *testing.T) {
 	cfg := newCfg()
 	ks := newKS(t)
-	h := handlers.NewUserInfoHandler(cfg, ks)
+	adapter := newAdapter()
+	defer adapter.Stop()
+	h := handlers.NewUserInfoHandler(cfg, ks, adapter)
 	rr := httptest.NewRecorder()
 	h(rr, httptest.NewRequest("GET", "/userinfo", nil))
 
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", rr.Code)
 	}
+	if challenge := rr.Header().Get("WWW-Authenticate"); !strings.Contains(challenge, "Bearer") {
+		t.Errorf("expected Bearer WWW-Authenticate challenge, got %q", challenge)
+	}
 }
 
 func TestUserInfoHandler_InvalidToken_Returns401(t *testing.T) {
 	cfg := newCfg()
 	ks := newKS(t)
-	h := handlers.NewUserInfoHandler(cfg, ks)
+	adapter := newAdapter()
+	defer adapter.Stop()
+	h := handlers.NewUserInfoHandler(cfg, ks, adapter)
 
 	req := httptest.NewRequest("GET", "/userinfo", nil)
 	req.Header.Set("Authorization", "Bearer not.a.jwt")
@@ -394,14 +416,71 @@ func TestUserInfoHandler_InvalidToken_Returns401(t *testing.T) {
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", rr.Code)
 	}
+	if challenge := rr.Header().Get("WWW-Authenticate"); !strings.Contains(challenge, `error="invalid_token"`) {
+		t.Errorf("expected error=invalid_token in challenge, got %q", challenge)
+	}
+}
+
+func TestUserInfoHandler_RevokedJTI_Returns401(t *testing.T) {
+	cfg := newCfg()
+	ks := newKS(t)
+	adapter := newAdapter()
+	defer adapter.Stop()
+	at := issueAT(t, cfg, ks, "alice", "openid")
+	// Intentionally do NOT seed the JTI — simulates a revoked or unknown token.
+
+	h := handlers.NewUserInfoHandler(cfg, ks, adapter)
+	req := httptest.NewRequest("GET", "/userinfo", nil)
+	req.Header.Set("Authorization", "Bearer "+at)
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for revoked JTI, got %d", rr.Code)
+	}
+}
+
+func TestUserInfoHandler_WrongIssuer_Returns401(t *testing.T) {
+	cfg := newCfg()
+	ks := newKS(t)
+	adapter := newAdapter()
+	defer adapter.Stop()
+	// Issue a token whose iss claim does not match cfg.Issuer.
+	now := time.Now()
+	tok, err := crypto.IssueAccessToken(ks, crypto.AccessTokenClaims{
+		Issuer:    "https://evil.example.com",
+		Subject:   "alice",
+		Audience:  []string{"https://evil.example.com"},
+		Scope:     "openid",
+		IssuedAt:  now,
+		ExpiresAt: now.Add(time.Hour),
+		ClientID:  "client-1",
+	})
+	if err != nil {
+		t.Fatalf("IssueAccessToken: %v", err)
+	}
+	storeJTI(t, adapter, tok, ks, cfg)
+
+	h := handlers.NewUserInfoHandler(cfg, ks, adapter)
+	req := httptest.NewRequest("GET", "/userinfo", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for wrong issuer, got %d", rr.Code)
+	}
 }
 
 func TestUserInfoHandler_TokenInFormParam(t *testing.T) {
 	cfg := newCfg()
 	ks := newKS(t)
+	adapter := newAdapter()
+	defer adapter.Stop()
 	at := issueAT(t, cfg, ks, "frank", "openid")
+	storeJTI(t, adapter, at, ks, cfg)
 
-	h := handlers.NewUserInfoHandler(cfg, ks)
+	h := handlers.NewUserInfoHandler(cfg, ks, adapter)
 	req := formReq("/userinfo", url.Values{"access_token": {at}})
 	rr := httptest.NewRecorder()
 	h(rr, req)
@@ -526,7 +605,15 @@ func TestTokenHandler_UnsupportedGrantType(t *testing.T) {
 	adapter := newAdapter()
 	defer adapter.Stop()
 
-	client := cfg.FindClient("client-1")
+	// Client with permissive (empty) GrantTypes so the per-client whitelist
+	// added by Fix #4 doesn't short-circuit before the dispatcher reaches its
+	// "unknown grant_type" branch.
+	client := &config.ClientConfig{
+		ID:                      "permissive",
+		Secret:                  "secret",
+		RedirectURIs:            []string{"https://app.example.com/cb"},
+		TokenEndpointAuthMethod: "client_secret_basic",
+	}
 	h := handlers.NewTokenHandler(cfg, ks, adapter)
 
 	req := formReq("/token", url.Values{"grant_type": {"magic_beans"}})
@@ -1357,7 +1444,8 @@ func TestInteractionGetHandler_LoginPrompt(t *testing.T) {
 	}
 	adapter.Upsert(context.Background(), "interaction:"+uid, ia, 10*time.Minute)
 
-	h := handlers.NewInteractionGetHandler(cfg, adapter)
+	sm := newSM()
+	h := handlers.NewInteractionGetHandler(cfg, adapter, sm)
 	req := withChiUID(httptest.NewRequest("GET", "/interaction/"+uid, nil), uid)
 	rr := httptest.NewRecorder()
 	h(rr, req)
@@ -1384,7 +1472,8 @@ func TestInteractionGetHandler_ConsentPrompt(t *testing.T) {
 	}
 	adapter.Upsert(context.Background(), "interaction:"+uid, ia, 10*time.Minute)
 
-	h := handlers.NewInteractionGetHandler(cfg, adapter)
+	sm := newSM()
+	h := handlers.NewInteractionGetHandler(cfg, adapter, sm)
 	req := withChiUID(httptest.NewRequest("GET", "/interaction/"+uid, nil), uid)
 	rr := httptest.NewRecorder()
 	h(rr, req)
@@ -1399,7 +1488,8 @@ func TestInteractionGetHandler_NotFound_ShowsErrorPage(t *testing.T) {
 	adapter := newAdapter()
 	defer adapter.Stop()
 
-	h := handlers.NewInteractionGetHandler(cfg, adapter)
+	sm := newSM()
+	h := handlers.NewInteractionGetHandler(cfg, adapter, sm)
 	req := withChiUID(httptest.NewRequest("GET", "/interaction/ghost", nil), "ghost")
 	rr := httptest.NewRecorder()
 	h(rr, req)
@@ -1440,7 +1530,11 @@ func TestInteractionLoginHandler_ValidCredentials_Redirects(t *testing.T) {
 	adapter.Upsert(context.Background(), "interaction:"+uid, ia, 10*time.Minute)
 
 	h := handlers.NewInteractionLoginHandler(cfg, ks, adapter, sm)
-	req := formReq("/interaction/"+uid+"/login", url.Values{"login": {"alice"}, "password": {"correct"}})
+	req := formReq("/interaction/"+uid+"/login", url.Values{
+		"login":      {"alice"},
+		"password":   {"correct"},
+		"csrf_token": {sm.CSRFToken(uid)},
+	})
 	req = withChiUID(req, uid)
 	rr := httptest.NewRecorder()
 	h(rr, req)
@@ -1466,7 +1560,11 @@ func TestInteractionLoginHandler_InvalidCredentials_ShowsError(t *testing.T) {
 	adapter.Upsert(context.Background(), "interaction:"+uid, ia, 10*time.Minute)
 
 	h := handlers.NewInteractionLoginHandler(cfg, ks, adapter, sm)
-	req := formReq("/interaction/"+uid+"/login", url.Values{"login": {"alice"}, "password": {"wrong"}})
+	req := formReq("/interaction/"+uid+"/login", url.Values{
+		"login":      {"alice"},
+		"password":   {"wrong"},
+		"csrf_token": {sm.CSRFToken(uid)},
+	})
 	req = withChiUID(req, uid)
 	rr := httptest.NewRecorder()
 	h(rr, req)
@@ -1488,7 +1586,11 @@ func TestInteractionLoginHandler_NotFound_Returns404(t *testing.T) {
 	sm := newSM()
 
 	h := handlers.NewInteractionLoginHandler(cfg, ks, adapter, sm)
-	req := formReq("/interaction/ghost/login", url.Values{"login": {"alice"}, "password": {"correct"}})
+	req := formReq("/interaction/ghost/login", url.Values{
+		"login":      {"alice"},
+		"password":   {"correct"},
+		"csrf_token": {sm.CSRFToken("ghost")},
+	})
 	req = withChiUID(req, "ghost")
 	rr := httptest.NewRecorder()
 	h(rr, req)
@@ -1518,8 +1620,10 @@ func TestInteractionAbortHandler_RedirectsWithError(t *testing.T) {
 	}
 	adapter.Upsert(context.Background(), "interaction:"+uid, ia, 10*time.Minute)
 
-	h := handlers.NewInteractionAbortHandler(cfg, adapter)
-	req := withChiUID(httptest.NewRequest("POST", "/interaction/"+uid+"/abort", nil), uid)
+	sm := newSM()
+	h := handlers.NewInteractionAbortHandler(cfg, adapter, sm)
+	req := formReq("/interaction/"+uid+"/abort", url.Values{"csrf_token": {sm.CSRFToken(uid)}})
+	req = withChiUID(req, uid)
 	rr := httptest.NewRecorder()
 	h(rr, req)
 
@@ -1540,7 +1644,8 @@ func TestInteractionAbortHandler_NotFound_Returns404(t *testing.T) {
 	adapter := newAdapter()
 	defer adapter.Stop()
 
-	h := handlers.NewInteractionAbortHandler(cfg, adapter)
+	sm := newSM()
+	h := handlers.NewInteractionAbortHandler(cfg, adapter, sm)
 	req := withChiUID(httptest.NewRequest("POST", "/interaction/ghost/abort", nil), "ghost")
 	rr := httptest.NewRecorder()
 	h(rr, req)
@@ -1640,5 +1745,175 @@ func TestEndSessionHandler_NoSession_JustShowsPage(t *testing.T) {
 	// Without a session cookie, it should still render the signed-out page.
 	if rr.Code != http.StatusOK {
 		t.Errorf("expected 200 for logout without session, got %d", rr.Code)
+	}
+}
+
+// ============================================================
+// CSRF protection on interaction forms (Fix #10)
+// ============================================================
+
+func TestInteractionLoginRejectsMissingCSRF(t *testing.T) {
+	cfg := newCfg()
+	ks := newKS(t)
+	adapter := newAdapter()
+	defer adapter.Stop()
+	sm := newSM()
+
+	uid := "uid-csrf-missing"
+	ia := &models.Interaction{
+		UID:    uid,
+		Prompt: "login",
+		Params: map[string]string{
+			"response_type": "code",
+			"client_id":     "client-1",
+			"redirect_uri":  "https://app.example.com/cb",
+			"scope":         "openid",
+		},
+	}
+	adapter.Upsert(context.Background(), "interaction:"+uid, ia, 10*time.Minute)
+
+	h := handlers.NewInteractionLoginHandler(cfg, ks, adapter, sm)
+	req := formReq("/interaction/"+uid+"/login", url.Values{
+		"login":    {"alice"},
+		"password": {"correct"},
+	})
+	req = withChiUID(req, uid)
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for missing csrf_token, got %d body=%s", rr.Code, truncate(rr.Body.String(), 200))
+	}
+}
+
+func TestInteractionLoginRejectsTamperedCSRF(t *testing.T) {
+	cfg := newCfg()
+	ks := newKS(t)
+	adapter := newAdapter()
+	defer adapter.Stop()
+	sm := newSM()
+
+	uid := "uid-csrf-tampered"
+	ia := &models.Interaction{
+		UID:    uid,
+		Prompt: "login",
+		Params: map[string]string{
+			"response_type": "code",
+			"client_id":     "client-1",
+			"redirect_uri":  "https://app.example.com/cb",
+			"scope":         "openid",
+		},
+	}
+	adapter.Upsert(context.Background(), "interaction:"+uid, ia, 10*time.Minute)
+
+	h := handlers.NewInteractionLoginHandler(cfg, ks, adapter, sm)
+	req := formReq("/interaction/"+uid+"/login", url.Values{
+		"login":      {"alice"},
+		"password":   {"correct"},
+		"csrf_token": {"this-is-not-a-valid-token"},
+	})
+	req = withChiUID(req, uid)
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for tampered csrf_token, got %d", rr.Code)
+	}
+}
+
+func TestInteractionLoginAcceptsValidCSRF(t *testing.T) {
+	cfg := newCfg()
+	ks := newKS(t)
+	adapter := newAdapter()
+	defer adapter.Stop()
+	sm := newSM()
+
+	uid := "uid-csrf-valid"
+	ia := &models.Interaction{
+		UID:      uid,
+		Prompt:   "login",
+		ClientID: "client-1",
+		Params: map[string]string{
+			"response_type": "code",
+			"client_id":     "client-1",
+			"redirect_uri":  "https://app.example.com/cb",
+			"scope":         "openid",
+		},
+	}
+	adapter.Upsert(context.Background(), "interaction:"+uid, ia, 10*time.Minute)
+
+	h := handlers.NewInteractionLoginHandler(cfg, ks, adapter, sm)
+	req := formReq("/interaction/"+uid+"/login", url.Values{
+		"login":      {"alice"},
+		"password":   {"correct"},
+		"csrf_token": {sm.CSRFToken(uid)},
+	})
+	req = withChiUID(req, uid)
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302 redirect for valid csrf_token, got %d body=%s", rr.Code, truncate(rr.Body.String(), 200))
+	}
+}
+
+func TestInteractionConfirmRequiresCSRF(t *testing.T) {
+	cfg := newCfg()
+	ks := newKS(t)
+	adapter := newAdapter()
+	defer adapter.Stop()
+	sm := newSM()
+
+	uid := "uid-confirm-csrf"
+	ia := &models.Interaction{
+		UID:      uid,
+		Prompt:   "consent",
+		ClientID: "client-1",
+		Params: map[string]string{
+			"response_type": "code",
+			"client_id":     "client-1",
+			"redirect_uri":  "https://app.example.com/cb",
+			"scope":         "openid profile",
+		},
+	}
+	adapter.Upsert(context.Background(), "interaction:"+uid, ia, 10*time.Minute)
+
+	h := handlers.NewInteractionConfirmHandler(cfg, ks, adapter, sm)
+	req := formReq("/interaction/"+uid+"/confirm", url.Values{
+		"granted_scopes": {"openid"},
+	})
+	req = withChiUID(req, uid)
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for missing csrf_token on confirm, got %d", rr.Code)
+	}
+}
+
+func TestInteractionAbortRequiresCSRF(t *testing.T) {
+	cfg := newCfg()
+	adapter := newAdapter()
+	defer adapter.Stop()
+	sm := newSM()
+
+	uid := "uid-abort-csrf"
+	ia := &models.Interaction{
+		UID:      uid,
+		ClientID: "client-1",
+		Params: map[string]string{
+			"redirect_uri": "https://app.example.com/cb",
+		},
+	}
+	adapter.Upsert(context.Background(), "interaction:"+uid, ia, 10*time.Minute)
+
+	h := handlers.NewInteractionAbortHandler(cfg, adapter, sm)
+	req := formReq("/interaction/"+uid+"/abort", url.Values{})
+	req = withChiUID(req, uid)
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for missing csrf_token on abort, got %d", rr.Code)
 	}
 }

@@ -1,115 +1,144 @@
 package handlers
 
 import (
-"html/template"
-"net/http"
-"time"
+	"html/template"
+	"log/slog"
+	"net/http"
+	"time"
 
-"github.com/google/uuid"
-"github.com/strongnguyen29/go-oidc-provider/internal/config"
-"github.com/strongnguyen29/go-oidc-provider/internal/middleware"
-"github.com/strongnguyen29/go-oidc-provider/internal/models"
-"github.com/strongnguyen29/go-oidc-provider/internal/store"
-"github.com/strongnguyen29/go-oidc-provider/internal/views"
+	"github.com/google/uuid"
+	"github.com/strongnguyen29/go-oidc-provider/internal/config"
+	"github.com/strongnguyen29/go-oidc-provider/internal/logging"
+	"github.com/strongnguyen29/go-oidc-provider/internal/middleware"
+	"github.com/strongnguyen29/go-oidc-provider/internal/models"
+	"github.com/strongnguyen29/go-oidc-provider/internal/store"
+	"github.com/strongnguyen29/go-oidc-provider/internal/views"
 )
 
 var deviceTmpl = template.Must(template.New("device").ParseFS(views.FS, "device.html"))
 
+// deviceCSRFID is a fixed identifier used to bind the device-flow CSRF
+// token. Because the token is HMAC(secret, id), an attacker cannot forge a
+// valid token for any id without the server-side secret, so a stable id is
+// safe and avoids requiring an extra round-trip to allocate one.
+const deviceCSRFID = "/device"
+
 // NewDeviceGetHandler handles GET /device.
-func NewDeviceGetHandler(cfg *config.Config, adapter store.Adapter) http.HandlerFunc {
-return func(w http.ResponseWriter, r *http.Request) {
-userCode := r.URL.Query().Get("user_code")
-w.Header().Set("Content-Type", "text/html")
-deviceTmpl.ExecuteTemplate(w, "device.html", map[string]interface{}{
-"UserCode": userCode,
-})
-}
+func NewDeviceGetHandler(cfg *config.Config, adapter store.Adapter, sm *middleware.SessionMiddleware) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userCode := r.URL.Query().Get("user_code")
+		w.Header().Set("Content-Type", "text/html")
+		deviceTmpl.ExecuteTemplate(w, "device.html", map[string]interface{}{
+			"UserCode":  userCode,
+			"CSRFToken": sm.CSRFToken(deviceCSRFID),
+		})
+	}
 }
 
 // NewDevicePostHandler handles POST /device.
 func NewDevicePostHandler(cfg *config.Config, adapter store.Adapter, sm *middleware.SessionMiddleware) http.HandlerFunc {
-return func(w http.ResponseWriter, r *http.Request) {
-if err := r.ParseForm(); err != nil {
-w.WriteHeader(http.StatusBadRequest)
-return
-}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 
-userCode := r.FormValue("user_code")
-if userCode == "" {
-w.Header().Set("Content-Type", "text/html")
-deviceTmpl.ExecuteTemplate(w, "device.html", map[string]interface{}{
-"Error": "Please enter a user code.",
-})
-return
-}
+		if !sm.ValidateCSRF(deviceCSRFID, r.FormValue("csrf_token")) {
+			logging.FromContext(r.Context()).LogAttrs(r.Context(), slog.LevelWarn, "csrf_validation_failed",
+				slog.String("flow", "device_verification"),
+			)
+			middleware.WriteOAuthError(w, http.StatusForbidden, "invalid_request", "csrf token invalid")
+			return
+		}
 
-// Find device code by user code.
-rawDCID, err := adapter.Find(r.Context(), "usercode:"+userCode)
-if err != nil {
-w.Header().Set("Content-Type", "text/html")
-deviceTmpl.ExecuteTemplate(w, "device.html", map[string]interface{}{
-"Error":    "Invalid or expired code. Please try again.",
-"UserCode": userCode,
-})
-return
-}
-deviceCodeID, ok := rawDCID.(string)
-if !ok {
-w.WriteHeader(http.StatusInternalServerError)
-return
-}
+		userCode := r.FormValue("user_code")
+		if userCode == "" {
+			w.Header().Set("Content-Type", "text/html")
+			deviceTmpl.ExecuteTemplate(w, "device.html", map[string]interface{}{
+				"Error":     "Please enter a user code.",
+				"CSRFToken": sm.CSRFToken(deviceCSRFID),
+			})
+			return
+		}
 
-rawDC, err := adapter.Find(r.Context(), "device:"+deviceCodeID)
-if err != nil {
-w.Header().Set("Content-Type", "text/html")
-deviceTmpl.ExecuteTemplate(w, "device.html", map[string]interface{}{
-"Error":    "Code expired. Please restart the authorization on your device.",
-"UserCode": userCode,
-})
-return
-}
-dc, ok := rawDC.(*models.DeviceCode)
-if !ok {
-w.WriteHeader(http.StatusInternalServerError)
-return
-}
+		// Find device code by user code.
+		rawDCID, err := adapter.Find(r.Context(), "usercode:"+userCode)
+		if err != nil {
+			logging.FromContext(r.Context()).LogAttrs(r.Context(), slog.LevelWarn, "device_user_code_unknown",
+				slog.String("user_code", userCode),
+			)
+			w.Header().Set("Content-Type", "text/html")
+			deviceTmpl.ExecuteTemplate(w, "device.html", map[string]interface{}{
+				"Error":     "Invalid or expired code. Please try again.",
+				"UserCode":  userCode,
+				"CSRFToken": sm.CSRFToken(deviceCSRFID),
+			})
+			return
+		}
+		deviceCodeID, ok := rawDCID.(string)
+		if !ok {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 
-// Check session.
-sessionID := sm.GetSessionID(r)
-var session *models.Session
-if sessionID != "" {
-if rawSess, err := adapter.Find(r.Context(), "session:"+sessionID); err == nil {
-session, _ = rawSess.(*models.Session)
-}
-}
+		rawDC, err := adapter.Find(r.Context(), "device:"+deviceCodeID)
+		if err != nil {
+			w.Header().Set("Content-Type", "text/html")
+			deviceTmpl.ExecuteTemplate(w, "device.html", map[string]interface{}{
+				"Error":     "Code expired. Please restart the authorization on your device.",
+				"UserCode":  userCode,
+				"CSRFToken": sm.CSRFToken(deviceCSRFID),
+			})
+			return
+		}
+		dc, ok := rawDC.(*models.DeviceCode)
+		if !ok {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 
-if session == nil {
-// Redirect to login interaction with device info in params.
-uid := uuid.New().String()
-interaction := &models.Interaction{
-UID:      uid,
-Prompt:   "login",
-ClientID: dc.ClientID,
-Params: map[string]string{
-"device_user_code": userCode,
-"device_code_id":   dc.DeviceCode,
-},
-CreatedAt: time.Now().Unix(),
-ExpiresAt: time.Now().Add(10 * time.Minute).Unix(),
-}
-adapter.Upsert(r.Context(), "interaction:"+uid, interaction, 10*time.Minute)
-http.Redirect(w, r, "/interaction/"+uid, http.StatusFound)
-return
-}
+		// Check session.
+		sessionID := sm.GetSessionID(r)
+		var session *models.Session
+		if sessionID != "" {
+			if rawSess, err := adapter.Find(r.Context(), "session:"+sessionID); err == nil {
+				session, _ = rawSess.(*models.Session)
+			}
+		}
 
-// Session exists: mark device verified.
-dc.Verified = true
-dc.AccountID = session.AccountID
-adapter.Upsert(r.Context(), "device:"+dc.DeviceCode, dc, cfg.DeviceCodeTTL)
+		if session == nil {
+			// Redirect to login interaction with device info in params.
+			uid := uuid.New().String()
+			interaction := &models.Interaction{
+				UID:      uid,
+				Prompt:   "login",
+				ClientID: dc.ClientID,
+				Params: map[string]string{
+					"device_user_code": userCode,
+					"device_code_id":   dc.DeviceCode,
+				},
+				CreatedAt: time.Now().Unix(),
+				ExpiresAt: time.Now().Add(10 * time.Minute).Unix(),
+			}
+			adapter.Upsert(r.Context(), "interaction:"+uid, interaction, 10*time.Minute)
+			http.Redirect(w, r, "/interaction/"+uid, http.StatusFound)
+			return
+		}
 
-w.Header().Set("Content-Type", "text/html")
-deviceTmpl.ExecuteTemplate(w, "device.html", map[string]interface{}{
-"Success": true,
-})
-}
+		// Session exists: mark device verified.
+		dc.Verified = true
+		dc.AccountID = session.AccountID
+		adapter.Upsert(r.Context(), "device:"+dc.DeviceCode, dc, cfg.DeviceCodeTTL)
+
+		logging.FromContext(r.Context()).LogAttrs(r.Context(), slog.LevelInfo, "device_verified",
+			slog.String("client_id", dc.ClientID),
+			slog.String("account_id", session.AccountID),
+			slog.String("user_code", userCode),
+		)
+
+		w.Header().Set("Content-Type", "text/html")
+		deviceTmpl.ExecuteTemplate(w, "device.html", map[string]interface{}{
+			"Success": true,
+		})
+	}
 }

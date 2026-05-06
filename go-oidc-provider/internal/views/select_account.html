@@ -9,6 +9,7 @@
 <p>Continue as <strong>{{.AccountID}}</strong>?</p>
 <form method="POST" action="/interaction/{{.UID}}/login">
   <input type="hidden" name="uid" value="{{.UID}}">
+  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
   <input type="hidden" name="use_existing" value="1">
   <button type="submit" class="btn">Continue as {{.AccountID}}</button>
 </form>

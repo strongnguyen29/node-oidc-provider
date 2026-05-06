@@ -1,10 +1,12 @@
 package handlers
 
 import (
+"log/slog"
 "net/http"
 
 "github.com/strongnguyen29/go-oidc-provider/internal/config"
 "github.com/strongnguyen29/go-oidc-provider/internal/crypto"
+"github.com/strongnguyen29/go-oidc-provider/internal/logging"
 "github.com/strongnguyen29/go-oidc-provider/internal/middleware"
 "github.com/strongnguyen29/go-oidc-provider/internal/store"
 )
@@ -29,11 +31,18 @@ w.WriteHeader(http.StatusOK)
 return
 }
 
+log := logging.FromContext(r.Context())
+
 // Try as JWT (access token) — extract jti and remove from store.
 claims, err := crypto.ParseAccessToken(ks, token)
 if err == nil {
 if jti, ok := (*claims)["jti"].(string); ok && jti != "" {
 adapter.Destroy(r.Context(), "jti:"+jti)
+log.LogAttrs(r.Context(), slog.LevelInfo, "token_revoked",
+slog.String("client_id", client.ID),
+slog.String("kind", "access_token"),
+slog.String("jti", logging.RedactToken(jti)),
+)
 }
 w.WriteHeader(http.StatusOK)
 return
@@ -41,6 +50,11 @@ return
 
 // Try as refresh token.
 adapter.Destroy(r.Context(), "rt:"+token)
+log.LogAttrs(r.Context(), slog.LevelInfo, "token_revoked",
+slog.String("client_id", client.ID),
+slog.String("kind", "refresh_token"),
+slog.String("rt_id", logging.RedactToken(token)),
+)
 
 w.WriteHeader(http.StatusOK)
 }

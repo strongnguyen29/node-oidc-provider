@@ -2,9 +2,11 @@ package store_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/strongnguyen29/go-oidc-provider/internal/models"
 	"github.com/strongnguyen29/go-oidc-provider/internal/store"
 )
 
@@ -218,4 +220,83 @@ func TestMemoryStore_Concurrent(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		<-done
 	}
+}
+
+// TestFindReturnsIsolatedCopy asserts that mutating the value returned from
+// Find does not leak into the underlying entry, so a second Find call sees
+// the original data.
+func TestFindReturnsIsolatedCopy(t *testing.T) {
+	s := store.NewMemoryStore()
+	defer s.Stop()
+	ctx := context.Background()
+
+	original := &models.Session{
+		ID:        "s1",
+		AccountID: "alice",
+		LoginTime: 12345,
+		Clients: map[string]*models.ClientSession{
+			"client-1": {GrantID: "g1", Consented: []string{"openid"}},
+		},
+	}
+	if err := s.Upsert(ctx, "session:s1", original, time.Minute); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+
+	got, err := s.Find(ctx, "session:s1")
+	if err != nil {
+		t.Fatalf("Find: %v", err)
+	}
+	sess := got.(*models.Session)
+	sess.AccountID = "mallory"
+	sess.Clients["client-1"].Consented = append(sess.Clients["client-1"].Consented, "evil")
+
+	got2, err := s.Find(ctx, "session:s1")
+	if err != nil {
+		t.Fatalf("Find again: %v", err)
+	}
+	sess2 := got2.(*models.Session)
+	if sess2.AccountID != "alice" {
+		t.Errorf("expected AccountID=alice after first reader's mutation, got %s", sess2.AccountID)
+	}
+	if len(sess2.Clients["client-1"].Consented) != 1 {
+		t.Errorf("expected Consented unchanged, got %v", sess2.Clients["client-1"].Consented)
+	}
+}
+
+// TestConcurrentSessionMutation hammers Find/Upsert with many goroutines that
+// each mutate the value they retrieve. Run with -race to catch shared-pointer
+// bugs in the in-memory adapter.
+func TestConcurrentSessionMutation(t *testing.T) {
+	s := store.NewMemoryStore()
+	defer s.Stop()
+	ctx := context.Background()
+
+	if err := s.Upsert(ctx, "session:race", &models.Session{
+		ID:        "race",
+		AccountID: "alice",
+		Clients:   map[string]*models.ClientSession{"c": {Consented: []string{"openid"}}},
+	}, time.Minute); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			for j := 0; j < 50; j++ {
+				got, err := s.Find(ctx, "session:race")
+				if err != nil {
+					continue
+				}
+				if sess, ok := got.(*models.Session); ok {
+					sess.LoginTime = int64(n*1000 + j)
+					if cs := sess.Clients["c"]; cs != nil {
+						cs.Consented = append(cs.Consented, "x")
+					}
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
 }
