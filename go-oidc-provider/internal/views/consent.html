@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Authorize</title>
+<style>body{font-family:sans-serif;max-width:400px;margin:80px auto;padding:0 20px}
+.scope{margin:4px 0}
+.btn{padding:10px 20px;cursor:pointer;font-size:14px}
+.allow{background:#0070f3;color:#fff;border:none}
+.deny{background:#e00;color:#fff;border:none;margin-left:8px}</style>
+</head>
+<body>
+<h2>Authorize {{.ClientID}}</h2>
+<p>The application is requesting access to:</p>
+<form method="POST" action="/interaction/{{.UID}}/confirm">
+  <input type="hidden" name="uid" value="{{.UID}}">
+  {{range .Scopes}}
+  <div class="scope">
+    <label><input type="checkbox" name="granted_scopes" value="{{.}}" checked> {{.}}</label>
+  </div>
+  {{end}}
+  <br>
+  <button type="submit" class="btn allow">Allow</button>
+  <button type="button" class="btn deny" onclick="window.location='/interaction/{{.UID}}/abort'">Deny</button>
+</form>
+</body>
+</html>
