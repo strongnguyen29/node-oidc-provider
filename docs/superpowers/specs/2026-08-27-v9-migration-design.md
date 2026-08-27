@@ -42,7 +42,7 @@ v9 không khai `engines`.
 | `instance(p).configuration('a.b')` | `instance(p).configuration.a.b` |
 | `instance(p).configuration('features.deviceFlow')` | `instance(p).features.deviceFlow` |
 | `provider.app.createContext(...)` | `provider.createContext(...)` — Provider *là* Koa app |
-| `ssHandler.set(cookies, name, val, opts)` | `ctx.cookies.set(name, val, opts)` — same-site fallback bị xoá hẳn |
+| `ssHandler.set(cookies, name, val, opts)` | `ctx.cookies.set(name, val, opts)` — same-site fallback bị xoá hẳn; đây là lý do cookie `_SID` chuyển ra ngoài library (mục 4.4) |
 | `module.exports = { get, post }` | `export const get` / `export const post` |
 | `randomFill` + `Buffer.allocUnsafe` | đã bị loại khỏi codebase |
 | XSRF viết tay trong action | `generateXsrf` / `checkXsrf` từ `lib/shared/xsrf.js` |
@@ -124,22 +124,83 @@ Lý do hook hoá thay vì port nguyên trạng: cả hai chỗ upstream đã ch�
 nên đưa vào config khiến lần rebase sau gần như không đụng gì; đồng thời mặc định
 vẫn là hành vi chuẩn, ai đọc code cũng thấy rõ chỗ fork lệch.
 
-### 4.4 Viết lại (1)
+### 4.4 Chuyển ra ngoài library (1)
 
-**Cookie `_SID` chia sẻ root-domain.** Gồm ba chỗ: `lib/shared/session.js`,
-`lib/actions/end_session.js`, và `cookies.names.sessionAccountId` +
-`cookies.share` trong `defaults.js`.
+**Cookie `_SID` chia sẻ root-domain.** Không port. Chuyển hẳn sang app tích hợp,
+đặt qua một middleware upstream. Ba chỗ trong lib rời khỏi phạm vi:
+`lib/shared/session.js`, `lib/actions/end_session.js`, và
+`cookies.names.sessionAccountId` + `cookies.share` trong `defaults.js`.
 
-Phải viết lại vì `ssHandler` (same-site legacy fallback) bị xoá hẳn ở v9. Thay
-`ssHandler.set(ctx.oidc.cookies, name, val, opts)` bằng
-`ctx.oidc.cookies.set(name, val, opts)` — v9 `shared/session.js` và
-`end_session.js` đều đã dùng dạng này cho cookie `session`.
+Nếu port vào lib thì đây là patch duy nhất phải viết lại, vì `ssHandler`
+(same-site legacy fallback) bị xoá hẳn ở v9. Chuyển ra ngoài thì patch biến mất.
 
-Lưu ý phần regex nối `expires`: v9 đổi `longRegExp` từ
-`^${name}(?:\.legacy)?(?:\.sig)?=` sang `^${name}(?:\.sig)?=` (bỏ nhánh `.legacy`).
-Regex cho `_SID` phải theo dạng mới, không copy dạng cũ.
+#### Không đi bằng event
 
-Phần `Array.isArray` trong patch cũ thì bỏ (xem 4.1).
+v9 **không có event nào cho session** — không `session.saved`, không
+`session.destroyed`. Mọi event trong `docs/events.md` đều theo endpoint. Thêm
+event mới lại chính là một patch fork, đúng thứ đang muốn giảm. Ngoài ra
+`EventEmitter.emit` chạy đồng bộ và không `await` listener async, nên một
+listener async đi set cookie sẽ đua với lúc Koa ghi response.
+
+#### Đi bằng `provider.use()`
+
+```js
+provider.use(async (ctx, next) => {
+  try {
+    await next();
+  } finally {
+    const session = ctx.oidc?.session;
+    if (session) {
+      const opts = {
+        httpOnly: false, overwrite: true, signed: false,
+        sameSite: 'lax', secure: true, domain: '.example.vn',
+      };
+      if (!session.transient && session.exp) {
+        opts.expires = new Date(session.exp * 1000);
+      }
+      ctx.cookies.set('_SID', session.destroyed ? '0' : (session.accountId || '0'), opts);
+    }
+  }
+});
+```
+
+Bốn điều đã kiểm chứng trong code v9 để chắc chắn cơ chế này chạy:
+
+1. `Provider extends Koa`, và `use()` được **override** (`lib/provider.js:440-444`):
+   nó splice middleware vào **trước** `#exec`, nên mọi middleware thêm bằng
+   `provider.use()` chắc chắn ở vị trí upstream. Changelog v9 nói thẳng:
+   *"upstream control flows are unaffected"*.
+2. Cụm "routes will now end the HTTP request" trong changelog **không phải**
+   `res.end()`. Quét toàn bộ `lib/` v9 chỉ có đúng một `res.end()`, ở
+   `interactionFinished` (`lib/provider.js:235`) — helper app tự gọi, ngoài Koa
+   stack. `lib/helpers/router.js` chỉ là koa-compose thuần. Nên Koa vẫn ghi
+   response sau khi stack unwind xong, và set cookie lúc đó vẫn kịp.
+3. `ctx.oidc` được gắn bằng `Object.defineProperty` trong `ensureOIDC`
+   (`lib/helpers/initialize_app.js:56-65`) — gắn theo từng route, nhưng đó là
+   mutation trên `ctx`, nên nó còn nguyên khi unwind về middleware upstream.
+4. `ensureSessionSave` persist session **trong** route stack, và `destroy()` set
+   `this.destroyed = true` (`lib/models/session.js:110-113`). Nên lúc unwind,
+   `accountId` đã chốt và `destroyed` đọc được.
+
+#### Ba điều bắt buộc với người triển khai phía app
+
+- **`try/finally` là bắt buộc**, không phải cho gọn. Patch cũ nằm trong `finally`
+  của session handler nên vẫn set cookie khi route ném lỗi. Bỏ `finally` là đổi
+  hành vi so với bản v7.
+- **Hai guard bắt buộc:** `ctx.oidc?` (request không match route nào thì `ctx.oidc`
+  undefined, vì `ensureOIDC` chạy theo route) và `if (session)` (route như
+  `/token` không chạy session middleware).
+- **Chỉ đọc, không ghi vào `session`.** Proxy trong `lib/shared/session.js` chỉ
+  bẫy `set`; mọi phép ghi sẽ bật `touched` và kéo theo một lần persist ngoài ý muốn.
+
+#### Điểm được thêm
+
+Cái hack tệ nhất của patch cũ — dùng regex chắp `; expires=...` vào chuỗi
+set-cookie — biến mất hẳn. Từ ngoài ta biết `session.exp` nên truyền `expires`
+trực tiếp cho `cookies.set()`. Fork phải hack vì nó set cookie ngay trong session
+handler, nơi `cookies.share` là config tĩnh.
+
+Phần `Array.isArray` trong patch cũ cũng không còn liên quan (xem 4.1).
 
 ### 4.5 Port thẳng (5)
 
@@ -153,33 +214,38 @@ Phần `Array.isArray` trong patch cũ thì bỏ (xem 4.1).
 
 ### 4.6 Tổng kết phạm vi
 
-7 patch, 9 file lib:
+**7 patch, 7 file lib** — cộng một việc nằm ở repo app (cookie `_SID`, mục 4.4).
 
 | File | Patch dùng tới |
 |---|---|
-| `lib/helpers/defaults.js` | cả 6 mục config mới |
+| `lib/helpers/defaults.js` | cả 4 mục config mới |
 | `lib/provider.js` | `grantTypeParamsDefault`, cookie prefix |
-| `lib/shared/session.js` | cookie `_SID` |
-| `lib/actions/end_session.js` | cookie `_SID` |
 | `lib/helpers/token_find.js` | hook `strictTokenTypeHint` |
 | `lib/shared/access_token.js` | hook `userinfoRequiredScopes` |
 | `lib/actions/authorization/respond.js` | `partner` / `ui_mode` |
 | `lib/actions/grants/refresh_token.js` | `trackingAction` |
 | `lib/models/session.js` | `loginFrom` / `deviceId` |
 
-`defaults.js` là file duy nhất nhiều patch cùng chạm — nên đặt nó vào commit của
-từng patch tương ứng thay vì gom một commit riêng, để mỗi commit vẫn tự đứng được.
+`defaults.js` (4 patch chạm) và `provider.js` (2 patch chạm) là hai file nhiều
+patch cùng dùng. Với chúng, đặt thay đổi vào commit của từng patch tương ứng thay
+vì gom một commit riêng, để mỗi commit vẫn tự đứng được.
 
-Sáu mục config mới thêm vào `defaults.js`:
+Kiểm chứng con số: 12 patch ban đầu = 4 bỏ (4.1 + 4.2) + 2 hook hoá (4.3) +
+1 chuyển ra ngoài (4.4) + 5 port thẳng (4.5). Còn lại trong library: 2 + 5 = 7.
+
+Bốn mục config mới thêm vào `defaults.js`:
 
 ```
 grantTypeParamsDefault: []
 cookies.prefix: undefined
-cookies.names.sessionAccountId: '_SID'
-cookies.share: { ... }
 userinfoRequiredScopes: ['openid']
 features.introspection.strictTokenTypeHint: false
 ```
+
+So với bản trước khi chuyển `_SID` ra ngoài: từ 8 patch xuống 7, bớt 3 file
+(`lib/shared/session.js`, `lib/actions/end_session.js`, và phần `cookies.share` +
+`cookies.names.sessionAccountId` của `defaults.js`), và bớt đúng cái patch duy
+nhất phải viết lại.
 
 ## 5. Chiến lược git
 
@@ -208,8 +274,9 @@ Test viết ở đây là CJS/`jose2`/`nock`/chai 4; khi sang v9 phải dịch s
 ESM/chai 6/undici-mock. Nhưng phần assertion giữ nguyên — đó chính là thứ chứng
 minh hành vi không đổi qua hai major.
 
-Ưu tiên theo rủi ro: cookie `_SID` (patch phải viết lại) > hai hook (`userinfo`,
-`introspection`) > 4 patch port thẳng.
+Ưu tiên theo rủi ro: hai hook (`userinfo`, `introspection`) > 5 patch port thẳng.
+
+Cookie `_SID` không nằm trong pha này nữa — nó thành việc của repo app (Pha 3).
 
 ### Pha 1 — nền
 
@@ -224,9 +291,17 @@ minh hành vi không đổi qua hai major.
 
 Theo bảng 4.5, mỗi patch một commit kèm test đã dịch từ Pha 0.
 
-### Pha 3 — cookie `_SID`
+### Pha 3 — cookie `_SID` ở repo app
 
-Patch duy nhất phải viết lại. Test từ Pha 0 là trọng tài.
+Nằm ngoài repo này. Theo mục 4.4: thêm middleware `provider.use()`, kèm một test
+**trong repo app** khẳng định `Set-Cookie: _SID=...` có mặt trong response của
+route authorization và route end_session.
+
+Test đó không phải để cho đủ — nó là thứ duy nhất phát hiện khi upstream đổi
+`use()` hoặc đổi chỗ `ensureOIDC`, vì lúc đó cookie sẽ âm thầm ngừng được set,
+không lỗi, không log. Xem mục 9.
+
+Pha này chạy song song được với Pha 2 và Pha 4, không phụ thuộc thứ tự.
 
 ### Pha 4 — hai hook
 
@@ -252,7 +327,8 @@ Bước này phải làm **trước** khi tuyên bố hoàn thành, vì nó có 
 - `npm test`
 - `npm run test-ci` (ma trận express/koa/hapi/fastify)
 - `npm run lint` (biome)
-- Smoke test app consumer trên bản đóng gói `npm pack`
+- Smoke test app consumer trên bản đóng gói `npm pack`, trong đó **phải** kiểm
+  `_SID` xuất hiện đúng ở authorization và end_session (Pha 3)
 
 ## 7. Đổi tooling
 
@@ -276,6 +352,8 @@ lệnh, và ghi chú diff-against là `panva/main` thay vì `panva/v7.x`.
    `@strongnguyen/oidc-provider`.
 5. Kết quả land ở nhánh mới `vlive/oidc-provider-v9`; việc merge về đâu quyết
    định sau nghiệm thu.
+6. Repo app nhận trách nhiệm cookie `_SID` — cả code lẫn test. Nếu điều này không
+   khả thi, mục 4.4 phải lật lại và patch quay vào library.
 
 ## 9. Rủi ro
 
@@ -286,3 +364,5 @@ lệnh, và ghi chú diff-against là `panva/main` thay vì `panva/v7.x`.
 | App consumer gãy vì route v9 kết thúc request, không còn 404 catch-all | Smoke test Pha 6; nằm ngoài repo này |
 | Mất hai endpoint device flow | Đã chấp nhận, xem giả định 3 |
 | `overrides` trong `package.json` che một CVE nào đó | Kiểm tra lại ở Pha 1 trước khi bỏ |
+| Cookie `_SID` **âm thầm ngừng được set** nếu upstream đổi hành vi splice của `use()` hoặc đổi chỗ `ensureOIDC` — không lỗi, không log, chỉ là session chia sẻ root-domain hết hoạt động | Test bắt buộc trong repo app (Pha 3) + kiểm lại ở mỗi lần sync upstream. Đây là cái giá đã chấp nhận khi chuyển `_SID` ra ngoài |
+| Đọc `ctx.oidc.session` từ middleware app làm bật `touched` → persist ngoài ý muốn | Proxy chỉ bẫy `set`, nên chỉ đọc là an toàn; ghi rõ trong 4.4 là cấm ghi |
