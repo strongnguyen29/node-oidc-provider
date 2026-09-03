@@ -46,7 +46,41 @@ npm install
 npm test
 ```
 
-Nếu baseline v7 đã đỏ, dừng lại và báo — mọi so sánh sau đó vô nghĩa.
+## Baseline v7 đã biết (đo ngày 2026-09-03, Node 22.23.0)
+
+**2411 passing / 26 failing.** Baseline v7 xanh là **bất khả đạt** — 22 trong 26 lỗi
+do chính fork gây ra và độc lập với phiên bản Node. Cửa chặn "phải xanh mới đi tiếp"
+ban đầu dựa trên tiền đề sai, nay thay bằng: **số lỗi cũ không tăng, và test đặc tả
+mới phải xanh.**
+
+Cả 26 lỗi đã truy nguyên, và không lỗi nào chạm 7 patch cần viết test đặc tả:
+
+| Nhóm | Số | Nguyên nhân | Trên nhánh v9 |
+|---|---|---|---|
+| A | 18 | Fork đăng ký **ba route trùng tên** `code_verification` (`initialize_app.js:201-203`). `routeMap.set(name, route)` khiến ghi-sau-thắng, nên `urlFor('code_verification')` trả `/device/code-verification` thay vì `/device`. Sai cả `verification_uri`, action form nhập user-code, và form re-render ở `shared/error_handler.js:44`. | **Tự hết** — patch này đã bỏ (spec §4.2), không port |
+| B | 4 | Hành vi fork cố ý đổi, test upstream chưa cập nhật: 3 lỗi introspection `[wrong hint]` (bỏ cross-lookup) + 1 lỗi userinfo (message có `api_profile_get`) | **Xanh** — hai hook mặc định bằng hành vi upstream (Task 13, 14) |
+| C | 4 | `lib/helpers/jwt.js` dùng `assert.strict`, mà Node 22 chắp diff vào message tùy chỉnh (`"invalid nbf value\n\n'string' !== 'number'\n"`); test khẳng định message khớp tuyệt đối. Không phải defect. | Không liên quan (`test/jwt/`) |
+
+Nhóm A là **bug production đã ship trong 7.16.6**: thiết bị nhận `verification_uri`
+trỏ tới endpoint POST-only đòi Bearer token thay vì trang nhập code. Quyết định của
+chủ fork: **không hotfix v7**, để nhánh v9 tự khử theo cấu trúc. Ghi lại ở đây để
+không ai tái lập patch đó.
+
+## Cách chạy một file test
+
+Hai công thức chạy-một-file trong plan này và trong `CLAUDE.md` đều **sai**:
+`test/test_helper.js:59` phụ thuộc cứng `global.server` và `global.keystore` do
+`test/run.js` dựng, còn `run.js` hardcode glob `test/**/*.test.js` và **không** đọc
+`MOCHA_FILE`. Nên `npx mocha <file>` throw ngay, và không có `.mocharc` để bù.
+
+Chạy một file bằng runner dựng lại đúng hai global đó:
+
+```bash
+node <scratchpad>/run-one.js test/fork_params/fork_params.test.js
+```
+
+Runner đặt ngoài repo để không làm bẩn project. Nếu không có nó, dùng `npm test`
+rồi lọc theo tên suite.
 
 ---
 
@@ -182,7 +216,9 @@ Test thứ tư chốt một chi tiết dễ trượt khi port: patch dùng `!== 
 npm test
 ```
 
-Expected: PASS, tổng số test tăng đúng 4.
+Expected: số `passing` tăng đúng 4, và `failing` vẫn đúng **26** — không phải 0.
+Xem "Baseline v7 đã biết" ở đầu Phần I. Nếu `failing` > 26 thì test mới đã làm vỡ
+suite khác; dừng lại.
 
 - [ ] **Step 5: Commit**
 
@@ -2516,7 +2552,10 @@ Hai endpoint device flow qua access token (`/device/code-check`,
 - `npm install` — bỏ "Node 12 || 14 || 16 || 18 only", đổi thành Node 22+.
 - Xoá `npm run format` (eslint không còn), thay bằng `npm run lint` (biome).
 - Thêm `npm run build` và `npm run test-dist` (script mới của v9).
-- `npx mocha --timeout 3000 test/path/to/foo.test.js` vẫn đúng, giữ nguyên.
+- **Sửa** công thức chạy-một-file: `npx mocha --timeout 3000 test/path/to/foo.test.js`
+  **không chạy được** ở v7 (xem "Cách chạy một file test" ở đầu Phần I). Kiểm lại xem
+  ở v9 nó có chạy được không — v9 bỏ `jose2` nên `test/run.js` dựng ít global hơn,
+  có thể công thức này đúng ở v9. Chỉ ghi vào `CLAUDE.md` sau khi đã chạy thử thật.
 
 - [ ] **Step 3: Sửa đoạn nói về `test/run.js`**
 
