@@ -2467,9 +2467,40 @@ Cờ truyền qua tham số của createTokenFinder chứ không đọc config b
 
 Đây là **bước chặn**: nó có thể làm xuất hiện patch thứ 8. Không tuyên bố hoàn thành trước khi task này xanh.
 
+## KẾT QUẢ (đo 2026-09-03): khả năng (b) — bỏ patch là an toàn, KHÔNG có patch thứ 8
+
+Đo trên **cả hai** nhánh, cùng cấu hình client (`response_types: ['id_token']`, grant
+type ngoài chuẩn đã `registerGrantType`):
+
+| | v7 (có patch) | v9 (bỏ patch) |
+|---|---|---|
+| `client.grantTypes` | `["password"]` | `["urn:fork:password","implicit"]` |
+| `/auth` với `response_type=id_token` | 303 + id_token trong fragment | 303 + id_token trong fragment |
+
+**Hành vi đầu-cuối giống nhau.** Cả hai phiên bản gác authorization endpoint bằng
+`client.responseTypeAllowed(...)` trong `check_response_type.js` — tức bằng
+`response_types`, **không** bằng `grant_types`. `check_client_grant_type.js` chỉ áp cho
+`device_authorization` và `backchannel_authentication`, không áp cho `/auth`.
+
+`implicit` xuất hiện trong `grantTypes` là thay đổi **hình thức**: `implicit` không có
+handler ở token endpoint nên không mở thêm đường nào. Đã khẳng định bằng test riêng —
+`POST /token` với `grant_type=implicit` trả `unsupported_grant_type`.
+
+**Hai điều phát hiện thêm khi đo, đều sửa hiểu sai trong kế hoạch:**
+
+1. Patch v7 **không** tự cho `grant_types: ['password']` đi qua. Nó chỉ nới một
+   `invalidate()` xảy ra **sau** check enum ở `client_schema.js` (v7 dòng 527, v9 dòng
+   565-589). Grant type phải được `registerGrantType` trước, nếu không client bị từ
+   chối ở enum trên **cả hai** phiên bản. Config ở Step 1 của kế hoạch
+   (`grant_types: ['password']`, không đăng ký) rơi vào khả năng (a), không phải (b)/(c).
+2. Allow-list của patch v7 là **năm tên nguyên văn** `implicit`/`password`/`social`/
+   `telco`/`fast_login`. Client khai `urn:fork:password` + `id_token` bị **v7 từ chối**
+   mà v9 chấp nhận. Nên theo chiều nới lỏng, v9 rộng hơn v7 ở các tên ngoài năm tên đó
+   — nhưng với đúng cấu hình fork thực dùng thì trùng khớp.
+
 Bối cảnh: patch v7 nới `invalidate()` để client khai `response_types: ['id_token'|'token']` với grant `password` / `social` / `telco` / `fast_login` không bị từ chối. v9 đổi hẳn cơ chế — không `invalidate()` nữa mà tự `this.grant_types.push('implicit')` (`lib/helpers/client_schema.js:313-315`). Câu hỏi: việc `implicit` bị thêm vào có mở luồng implicit mà fork không muốn mở?
 
-- [ ] **Step 1: Viết config**
+- [x] **Step 1: Viết config**
 
 Tạo `test/fork_client_schema/fork_client_schema.config.js`:
 
@@ -2492,7 +2523,7 @@ export default {
 
 `password` không phải grant type v9 biết, nên Provider có thể từ chối ngay lúc khởi tạo — đó là một trong ba kết quả có thể, xem Step 3.
 
-- [ ] **Step 2: Viết test dò**
+- [x] **Step 2: Viết test dò**
 
 Tạo `test/fork_client_schema/fork_client_schema.test.js`:
 
@@ -2534,7 +2565,7 @@ describe('fork: dropping the client_schema grant_types patch', () => {
 });
 ```
 
-- [ ] **Step 3: Chạy và đọc kết quả — ba khả năng, ba đường đi**
+- [x] **Step 3: Chạy và đọc kết quả — ba khả năng, ba đường đi**
 
 ```bash
 npx mocha --timeout 3000 test/fork_client_schema/fork_client_schema.test.js
@@ -2546,7 +2577,7 @@ npx mocha --timeout 3000 test/fork_client_schema/fork_client_schema.test.js
 
 **(c) Client tồn tại và `/auth` trả về id_token trong fragment.** Kết luận: **bỏ patch mở luồng implicit ngoài ý muốn.** Đây là patch thứ 8. **Dừng lại**, báo người ra quyết định, mở lại mục 4.1 của spec. Hướng khả dĩ: thêm config `clientImplicitGrantAutoAdd` (mặc định `true` = hành vi upstream) để fork tắt việc tự thêm `implicit`. **Không tự ý làm** — đây là quyết định về sản phẩm, không phải về code.
 
-- [ ] **Step 4: Chốt test thành assertion cứng**
+- [x] **Step 4: Chốt test thành assertion cứng**
 
 Bỏ mọi `console.log`, thay bằng khẳng định theo hành vi thật đã quan sát. Ví dụ cho kết quả (b):
 
@@ -2574,14 +2605,14 @@ Chữ ký `auth.validateError` cần kiểm: `grep -n "validateError" -A 8 test/
 
 Test này tồn tại lâu dài để lần sync upstream sau phát hiện nếu hành vi đổi.
 
-- [ ] **Step 5: Chạy lint và cả suite**
+- [x] **Step 5: Chạy lint và cả suite**
 
 ```bash
 npm run lint
 npm test
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add test/fork_client_schema/
