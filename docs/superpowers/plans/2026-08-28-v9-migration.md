@@ -94,7 +94,7 @@ rồi lọc theo tên suite.
 - Consumes: `test/test_helper.js` (`bootstrap`, `this.login`, `this.AuthorizationRequest`, `this.wrap`), `test/default.config.js`
 - Produces: bộ 4 test, dịch sang ESM ở Task 10. Tên suite `fork: partner and ui_mode in the authorization response` giữ nguyên qua hai nhánh để đối chiếu.
 
-- [ ] **Step 1: Viết config cho suite**
+- [x] **Step 1: Viết config cho suite**
 
 Tạo `test/fork_params/fork_params.config.js`:
 
@@ -118,7 +118,7 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 2: Viết test**
+- [x] **Step 2: Viết test**
 
 Tạo `test/fork_params/fork_params.test.js`:
 
@@ -200,7 +200,7 @@ describe('fork: partner and ui_mode in the authorization response', () => {
 });
 ```
 
-- [ ] **Step 3: Chạy test, xác nhận nó PASS**
+- [x] **Step 3: Chạy test, xác nhận nó PASS**
 
 ```bash
 npx mocha --timeout 3000 test/fork_params/fork_params.test.js
@@ -208,9 +208,18 @@ npx mocha --timeout 3000 test/fork_params/fork_params.test.js
 
 Đây là characterization test, không phải TDD: code đã tồn tại nên test **phải pass ngay**. Nếu đỏ thì hoặc test sai, hoặc hiểu sai hành vi patch — sửa cho tới khi xanh và ghi lại hành vi thật, kể cả khi nó khác kỳ vọng.
 
-Test thứ tư chốt một chi tiết dễ trượt khi port: patch dùng `!== undefined`, nên chuỗi rỗng **vẫn được** echo.
+Test thứ tư chốt một chi tiết dễ trượt khi port. **Dự đoán ban đầu ở đây sai** và đã
+sửa theo hành vi đo được: chuỗi rỗng **không** được echo. `respond.js` gác bằng
+`!== undefined`, nhưng `lib/helpers/params.js` chạy `params[prop] || undefined` từ
+trước, nên mọi giá trị falsy — với query string thì chỉ có chuỗi rỗng — đã thành
+`undefined` trước khi `respond.js` nhìn thấy; nhánh `!== undefined` không bao giờ gặp
+chuỗi rỗng.
 
-- [ ] **Step 4: Chạy cả suite**
+Đã kiểm: v9 giữ y hệt dòng `params[prop] || undefined`, nên khẳng định này mang sang
+Task 10 không đổi. Người port **không** được "sửa" guard đó thành thứ cho chuỗi rỗng
+đi qua.
+
+- [x] **Step 4: Chạy cả suite**
 
 ```bash
 npm test
@@ -220,7 +229,7 @@ Expected: số `passing` tăng đúng 4, và `failing` vẫn đúng **26** — k
 Xem "Baseline v7 đã biết" ở đầu Phần I. Nếu `failing` > 26 thì test mới đã làm vỡ
 suite khác; dừng lại.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add test/fork_params/
