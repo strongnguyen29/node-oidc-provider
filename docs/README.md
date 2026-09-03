@@ -3324,6 +3324,28 @@ _**default value**_:
 
 ---
 
+### cookies.prefix
+
+Cookie Name Prefix  
+
+Specifies a prefix that shall be prepended to every cookie name configured in `cookies.names`, separated by a dot. This allows several provider instances to share a domain without their cookies colliding. When the value is falsy no prefix is applied and the names in `cookies.names` are used verbatim. 
+
+Note: This is a fork-specific extension, it is not part of upstream oidc-provider. 
+
+  
+
+
+_**default value**_:
+```js
+undefined
+```
+<a id="cookies-prefix-with-prefix-vlive-the-session-cookie-is-named-vlive-session"></a><details><summary>Example: (Click to expand) With `prefix: 'vlive'` the session cookie is named `vlive._session`.</summary><br>
+
+
+</details>
+
+---
+
 ### cookies.short
 
 Options for short-term cookies.  

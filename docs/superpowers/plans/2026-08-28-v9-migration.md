@@ -1393,12 +1393,15 @@ git commit -m "feat: thêm config grantTypeParamsDefault"
 - Modify: `docs/README.md`
 
 **Interfaces:**
-- Consumes: `test/fork_provider/fork_provider.config.js` từ Task 8 (đã có `cookies.prefix: 'vlive'`)
+- Consumes: config riêng `test/fork_provider/fork_provider_prefix.config.js` (xem sửa đổi bên dưới)
 - Produces: `provider.cookieName(type)` trả `<prefix>.<name>` khi prefix truthy, trả `<name>` khi falsy.
 
-Thư mục riêng `test/fork_provider_noprefix/` thay vì file config phụ, để không phụ thuộc chữ ký `bootstrap` có nhận tham số thứ hai hay không.
+**Hai sửa đổi so với kế hoạch, đã kiểm thực tế:**
 
-- [ ] **Step 1: Thêm config vào `defaults.js`**
+1. **KHÔNG dùng chung `fork_provider.config.js` của Task 8.** Config đó khai hai grant type ngoài chuẩn mà suite cookie không đăng ký, nên `client_schema` làm client invalid và `/auth` lỗi trước khi kịp set cookie — test Set-Cookie thấy header rỗng. Đây đúng là lỗi đã gặp và ghi lại ở Task 4 trên nhánh v7, kế hoạch chưa áp ngược vào Task 9. Dùng `fork_provider_prefix.config.js` riêng, client thường.
+2. **Không cần thư mục riêng `test/fork_provider_noprefix/`.** Theo kết luận Task 8 Step 1, `bootstrap` v9 nhận `{ config }` nên config phụ đặt **cùng thư mục** `test/fork_provider/` là đủ. Ba config trong một thư mục: `fork_provider` (grant types), `fork_provider_prefix` (có prefix), `fork_provider_noprefix` (không prefix).
+
+- [x] **Step 1: Thêm config vào `defaults.js`**
 
 Trong khối `cookies`, chèn ngay sau khối `names: { ... },`:
 
@@ -1418,7 +1421,7 @@ Trong khối `cookies`, chèn ngay sau khối `names: { ... },`:
       prefix: undefined,
 ```
 
-- [ ] **Step 2: Sửa `cookieName`**
+- [x] **Step 2: Sửa `cookieName`**
 
 Thay toàn bộ method trong `lib/provider.js`:
 
@@ -1434,7 +1437,7 @@ Thay toàn bộ method trong `lib/provider.js`:
   }
 ```
 
-- [ ] **Step 3: Dịch test từ Task 4 (phần cookie prefix)**
+- [x] **Step 3: Dịch test từ Task 4 (phần cookie prefix)**
 
 Tạo `test/fork_provider/cookie_prefix.test.js`:
 
@@ -1472,7 +1475,7 @@ describe('fork: cookies.prefix', () => {
 });
 ```
 
-- [ ] **Step 4: Test nhánh mặc định — không có prefix**
+- [x] **Step 4: Test nhánh mặc định — không có prefix**
 
 Đây là nhánh mọi deployment upstream đang dùng, phải chắc nó không hồi quy.
 
@@ -1526,7 +1529,7 @@ describe('fork: cookies.prefix left unset', () => {
 });
 ```
 
-- [ ] **Step 5: Chạy cả hai file**
+- [x] **Step 5: Chạy cả hai file**
 
 ```bash
 npx mocha --timeout 3000 test/fork_provider/cookie_prefix.test.js test/fork_provider_noprefix/fork_provider_noprefix.test.js
@@ -1534,7 +1537,7 @@ npx mocha --timeout 3000 test/fork_provider/cookie_prefix.test.js test/fork_prov
 
 Expected: PASS, 5 test.
 
-- [ ] **Step 6: Sinh lại docs, lint, chạy cả suite**
+- [x] **Step 6: Sinh lại docs, lint, chạy cả suite**
 
 ```bash
 node docs/update-configuration.js
@@ -1544,7 +1547,7 @@ npm test
 
 Expected: PASS. Đặc biệt mọi suite chạm cookie (`test/end_session/`, `test/interaction/`, `test/session/` nếu có) phải xanh — chúng chạy với `prefix` mặc định `undefined`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add lib/provider.js lib/helpers/defaults.js docs/README.md test/fork_provider/ test/fork_provider_noprefix/
