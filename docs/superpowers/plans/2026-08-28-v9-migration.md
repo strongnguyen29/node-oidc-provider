@@ -1793,7 +1793,7 @@ git commit -m "feat: đặt ctx.trackingAction và phát event refresh_token"
 
 **Không port một phần:** đoạn `if (ctx.oidc.entities.Session) return ctx.oidc.entities.Session;` ở đầu `static async get`. Nó chỉ tồn tại để phục vụ hai endpoint device flow đã bị bỏ (spec mục 4.2), và trên đường đi thường nó biến `Session.get` thành cache trong cùng request — một thay đổi hành vi không ai cần. Xem "Bốn khác biệt so với spec" ở đầu tài liệu.
 
-- [ ] **Step 1: Thêm hai field vào `IN_PAYLOAD`**
+- [x] **Step 1: Thêm hai field vào `IN_PAYLOAD`**
 
 Thêm `'loginFrom'` ngay sau `'loginTs'` và `'deviceId'` ngay sau `'state'`, giữ đúng vị trí như bản v7:
 
@@ -1815,7 +1815,7 @@ Thêm `'loginFrom'` ngay sau `'loginTs'` và `'deviceId'` ngay sau `'state'`, gi
   }
 ```
 
-- [ ] **Step 2: Copy `ctx.req.deviceId` trong `static async get`**
+- [x] **Step 2: Copy `ctx.req.deviceId` trong `static async get`**
 
 Chèn ngay **trước** `return session;`:
 
@@ -1825,7 +1825,7 @@ Chèn ngay **trước** `return session;`:
     }
 ```
 
-- [ ] **Step 3: Thêm `loginFrom` vào `loginAccount`**
+- [x] **Step 3: Thêm `loginFrom` vào `loginAccount`**
 
 Thay toàn bộ method:
 
@@ -1845,7 +1845,7 @@ Thay toàn bộ method:
   }
 ```
 
-- [ ] **Step 4: Dịch config và test chính từ Task 3**
+- [x] **Step 4: Dịch config và test chính từ Task 3**
 
 Tạo `test/fork_session/fork_session.config.js`:
 
@@ -1887,7 +1887,7 @@ Tạo `test/fork_session/fork_session.test.js` — dịch nguyên văn từ Task
   });
 ```
 
-- [ ] **Step 5: Dịch test nhánh có `ctx.req.deviceId`, dùng `provider.use()`**
+- [x] **Step 5: Dịch test nhánh có `ctx.req.deviceId`, dùng `provider.use()`**
 
 Thư mục riêng vì middleware không xoá được.
 
@@ -1941,7 +1941,7 @@ describe('fork: session picks up ctx.req.deviceId', () => {
 });
 ```
 
-- [ ] **Step 6: Chạy cả hai file**
+- [x] **Step 6: Chạy cả hai file**
 
 ```bash
 npx mocha --timeout 3000 test/fork_session/fork_session.test.js test/fork_session/fork_session_device.test.js
@@ -1949,7 +1949,7 @@ npx mocha --timeout 3000 test/fork_session/fork_session.test.js test/fork_sessio
 
 Expected: PASS, 8 test.
 
-- [ ] **Step 7: Chạy lint và cả suite**
+- [x] **Step 7: Chạy lint và cả suite**
 
 ```bash
 npm run lint
@@ -1958,7 +1958,7 @@ npm test
 
 Expected: PASS. `test/interaction/`, `test/end_session/`, `test/auth_time/` — mọi suite chạm Session — phải xanh.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add lib/models/session.js test/fork_session/
