@@ -740,7 +740,7 @@ git commit -m "test: đặc tả grantTypeParamsDefault và cookies.prefix"
 - Consumes: `this.provider.AccessToken`, `this.provider.Grant`, `this.provider.Client`
 - Produces: `mintAccessToken(ctx, scope) -> Promise<string>` (Task 13 dùng lại nguyên văn) và bảng 6 trường hợp. Task 13 phải reproduce đúng bảng này qua config `userinfoRequiredScopes`.
 
-- [ ] **Step 1: Viết config**
+- [x] **Step 1: Viết config**
 
 Tạo `test/fork_userinfo/fork_userinfo.config.js`:
 
@@ -770,7 +770,7 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 2: Viết test**
+- [x] **Step 2: Viết test**
 
 Tạo `test/fork_userinfo/fork_userinfo.test.js`:
 
@@ -856,7 +856,7 @@ describe('fork: userinfo accepts api_profile_get as well as openid', () => {
 });
 ```
 
-- [ ] **Step 3: Chạy và điều chỉnh**
+- [x] **Step 3: Chạy và điều chỉnh**
 
 ```bash
 npx mocha --timeout 3000 test/fork_userinfo/fork_userinfo.test.js
@@ -864,13 +864,28 @@ npx mocha --timeout 3000 test/fork_userinfo/fork_userinfo.test.js
 
 Test cuối chốt **chuỗi lỗi và scope hint chính xác** — đây là hợp đồng Task 13 phải reproduce từ config. Nếu chuỗi thật khác, ghi đúng chuỗi thật.
 
-- [ ] **Step 4: Chạy cả suite**
+**Phát hiện khi chạy thật (2026-09-03) — điều đáng chú ý nhất của patch này:**
+token chỉ có `api_profile_get` **đi qua được cửa scope (200) nhưng body rỗng `{}`**,
+kể cả `sub` cũng không có. Kế hoạch ban đầu đoán sai là sẽ trả `sub`.
+
+Lý do: patch chỉ nới điều kiện ở `lib/actions/userinfo.js:27`. Xuống tới hàm
+`respond`, `mask.scope(scope)` (dòng 204) lọc claims theo OIDC scope, mà `scope` ở
+đây là `grant.getOIDCScopeFiltered(...)` trên `'api_profile_get'` — scope không mang
+claim OIDC nào — nên cho ra chuỗi rỗng và `Claims.result()` trả `{}`. `sub` chỉ đi
+kèm scope `openid`.
+
+Nghĩa là **patch mở cửa nhưng không làm `/me` trả profile**, trái với tên scope gợi
+ý. Task 13 phải reproduce đúng điều này qua `userinfoRequiredScopes`, **không** được
+"sửa" thành trả `sub`. Nếu hành vi mong muốn là trả profile thì đó là một thay đổi
+riêng, nằm ngoài phạm vi migration — phải hỏi chủ fork trước.
+
+- [x] **Step 4: Chạy cả suite**
 
 ```bash
 npm test
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add test/fork_userinfo/
