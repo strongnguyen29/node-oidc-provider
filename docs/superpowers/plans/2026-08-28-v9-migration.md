@@ -1687,7 +1687,7 @@ git commit -m "feat: trả partner và ui_mode trong authorization response"
 
 **Khác vị trí so với v7:** handler v9 không nhận `next` và không gọi `await next()` (hệ quả của "routes are final"). Patch v7 nằm **trước** `await next()`; ở v9 nó nằm ở cuối thân hàm. Cùng vị trí về ngữ nghĩa.
 
-- [ ] **Step 1: Sửa `refresh_token.js`**
+- [x] **Step 1: Sửa `refresh_token.js`**
 
 Chèn ngay **sau** khối `ctx.body = buildTokenResponse(...)` và trước dấu `};` đóng hàm:
 
@@ -1710,7 +1710,7 @@ Chèn ngay **sau** khối `ctx.body = buildTokenResponse(...)` và trước dấ
 
 **Không sửa quirk array-amr.** `amr` theo OIDC Core là array, `switch` so với string nên array luôn rơi vào `default`. Đó là hành vi production hiện tại; đổi nó là quyết định riêng, không phải việc của bước port. Task 2 đã ghi lại hành vi thật.
 
-- [ ] **Step 2: Dịch config từ Task 2**
+- [x] **Step 2: Dịch config từ Task 2**
 
 Tạo `test/fork_tracking/fork_tracking.config.js`:
 
@@ -1735,11 +1735,11 @@ export default {
 };
 ```
 
-- [ ] **Step 3: Dịch test từ Task 2**
+- [x] **Step 3: Dịch test từ Task 2**
 
 Tạo `test/fork_tracking/fork_tracking.test.js` — dịch nguyên văn file từ Task 2, đổi hai dòng import và `bootstrap(import.meta.url)`. Giữ **y nguyên** cả sáu assertion, kể cả hai test quirk array-amr.
 
-- [ ] **Step 4: Chạy test và đối chiếu với Task 2**
+- [x] **Step 4: Chạy test và đối chiếu với Task 2**
 
 ```bash
 npx mocha --timeout 3000 test/fork_tracking/fork_tracking.test.js
@@ -1749,7 +1749,7 @@ Expected: PASS, 6 test, cùng giá trị như Task 2.
 
 Nếu `mintRefreshToken` đỏ vì field bắt buộc đổi giữa v7 và v9, đọc lỗi và bổ sung — đó là thay đổi model của upstream, ghi chú vào commit message.
 
-- [ ] **Step 5: Kiểm event không phát hai lần khi refresh token rotate**
+- [x] **Step 5: Kiểm event không phát hai lần khi refresh token rotate**
 
 Thêm vào cuối file test:
 
@@ -1760,7 +1760,7 @@ Thêm vào cuối file test:
   });
 ```
 
-- [ ] **Step 6: Chạy lint và cả suite**
+- [x] **Step 6: Chạy lint và cả suite**
 
 ```bash
 npm run lint
@@ -1769,7 +1769,7 @@ npm test
 
 Expected: PASS. `test/core/basic/` và mọi suite có refresh token phải xanh — event mới không được làm hỏng chúng.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add lib/actions/grants/refresh_token.js test/fork_tracking/
