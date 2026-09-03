@@ -594,7 +594,7 @@ git commit -m "test: đặc tả session loginFrom và deviceId của fork"
 
 Hai patch dùng chung một suite vì cả hai đều là mở rộng `lib/provider.js` và đều kiểm bằng cách dựng Provider trực tiếp.
 
-- [ ] **Step 1: Viết config**
+- [x] **Step 1: Viết config**
 
 Tạo `test/fork_provider/fork_provider.config.js`:
 
@@ -620,7 +620,7 @@ module.exports = {
 
 Hai grant type ngoài chuẩn khai sẵn trong `client.grant_types` để qua được `check_client_grant_type`.
 
-- [ ] **Step 2: Viết test**
+- [x] **Step 2: Viết test**
 
 Tạo `test/fork_provider/fork_provider.test.js`:
 
@@ -703,24 +703,25 @@ describe('fork: cookies.prefix', () => {
 });
 ```
 
-- [ ] **Step 3: Chạy và điều chỉnh**
+- [x] **Step 3: Chạy và điều chỉnh**
 
 ```bash
 npx mocha --timeout 3000 test/fork_provider/fork_provider.test.js
 ```
 
-Hai điểm dễ lệch:
+Hai điểm dễ lệch. **Đã gặp cả hai khi chạy thật, kết luận:**
 
-1. Nếu `/token` trả 400 `unsupported_grant_type`, `registerGrantType` gọi trong `it()` là quá muộn — chuyển sang `before()`.
-2. `cookieName('nope')` trên v7 dùng `assert` (ném `AssertionError`), trên v9 ném `Error`. `.to.throw()` không tham số nên đúng cho cả hai — giữ vậy, đừng siết.
+1. **Phải đăng ký CẢ HAI grant type trong `before()`, không phải trong từng `it()`.** Lý do không phải `unsupported_grant_type` như đoán ban đầu, mà là `400 invalid_client_metadata`: `client_schema` validate `client.grant_types` theo tập grant **đã đăng ký**, và client ở config khai cả hai. Đăng ký lẻ tẻ trong `it()` thì request đầu tiên gãy vì grant type thứ hai còn chưa biết — biểu hiện rất dễ đọc sai, vì test thứ hai lại xanh (lúc đó cả hai đã đăng ký).
+2. **Suite `cookies.prefix` cần config RIÊNG** (`fork_provider_cookies.config.js`, cùng thư mục, nạp qua `bootstrap(__dirname, { config: 'fork_provider_cookies' })`). Nó bootstrap một provider riêng nơi không grant type ngoài chuẩn nào được đăng ký, nên nếu dùng chung config thì client invalid và `/auth` lỗi trước khi kịp set cookie — test Set-Cookie sẽ thấy header rỗng. Giữ test Set-Cookie: nó là test đáng giá nhất của nhóm, vì chỉ nó chứng minh prefix ra tới wire chứ không chỉ đúng ở `cookieName()`.
+3. `cookieName('nope')` trên v7 dùng `assert` (ném `AssertionError`), trên v9 ném `Error`. `.to.throw()` không tham số nên đúng cho cả hai — giữ vậy, đừng siết.
 
-- [ ] **Step 4: Chạy cả suite**
+- [x] **Step 4: Chạy cả suite**
 
 ```bash
 npm test
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add test/fork_provider/
