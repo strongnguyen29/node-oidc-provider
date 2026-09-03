@@ -1201,7 +1201,7 @@ Dịch test CJS → ESM theo năm phép đổi máy móc:
 - Consumes: `this.#int.configuration.grantTypeParamsDefault` (mảng string)
 - Produces: config `grantTypeParamsDefault: []`. **Task 9 dùng lại `test/fork_provider/fork_provider.config.js`**, nên file config phải tạo ở task này với cả `grantTypeParamsDefault` và `cookies.prefix`.
 
-- [ ] **Step 1: Xác minh chữ ký `bootstrap` trên v9 — chặn mọi task sau**
+- [x] **Step 1: Xác minh chữ ký `bootstrap` trên v9 — chặn mọi task sau**
 
 ```bash
 grep -n "export default function bootstrap\|export default (" -A 20 test/test_helper.js | head -30
@@ -1209,9 +1209,27 @@ grep -n "export default function bootstrap\|export default (" -A 20 test/test_he
 
 Cần biết: `bootstrap` nhận một hay hai tham số, và nếu hai thì tham số thứ hai là tên file config hay gì khác.
 
-Ghi kết luận vào một dòng chú thích ở đầu file test đầu tiên. Task 9, 12, 13, 14 đều dựa vào nó; nếu helper chỉ nhận một tham số, mọi config phụ phải nằm trong **thư mục riêng** thay vì cùng thư mục với tên khác.
+**ĐÃ KIỂM (2026-09-03) — kết luận, áp cho Task 9, 12, 13, 14:**
 
-- [ ] **Step 2: Thêm config vào `defaults.js`**
+Chữ ký v9 (`test/test_helper.js:126`) là `bootstrap(importMetaUrl, { config, protocol,
+mountVia, mountTo })` — tham số thứ hai là **OBJECT**, không phải string, y như trên
+v7. Truyền string sẽ **lặng lẽ nạp sai config**, không báo lỗi. Kế hoạch viết
+`bootstrap(import.meta.url, 'fork_provider')` ở Step 5 là **sai**, đã sửa.
+
+Thêm nữa, `base ??= path.basename(dir)` nên file test trong `test/<tên>/` **tự nạp**
+`<tên>.config.js` mà không cần tham số thứ hai. Config phụ đặt **cùng thư mục** được,
+nạp bằng `{ config: '<tên>' }` — v9 tự dùng cách này (`test/configuration/client_secrets.test.js`,
+`test/fapi/fapi2.test.js`). Nên **bốn thư mục riêng** mà kế hoạch dựng ra để phòng xa
+(`fork_provider_noprefix`, `fork_userinfo_default`, `fork_introspection_lax`,
+`fork_session_device`) là **không cần thiết** — dùng config phụ cùng thư mục cho gọn.
+
+**Chạy một file test trên v9 cũng KHÔNG dùng được `npx mocha`** (câu hỏi treo ở Task 16
+Step 2, nay đã trả lời): `test/test_helper.js:122` đọc `globalThis.server.address()`, mà
+`globalThis.server` do `test/run.js` dựng. v9 khác v7 ở chỗ không còn `global.keystore`
+(jose2 đã bỏ) và dùng `mocha.loadFilesAsync()` cho ESM. Cần runner ESM riêng dựng
+`globalThis.server`, hoặc dùng `npm test` rồi lọc theo tên suite.
+
+- [x] **Step 2: Thêm config vào `defaults.js`**
 
 Chèn ngay sau `extraParams: [],`:
 
@@ -1237,7 +1255,7 @@ Chèn ngay sau `extraParams: [],`:
     grantTypeParamsDefault: [],
 ```
 
-- [ ] **Step 3: Sửa `registerGrantType`**
+- [x] **Step 3: Sửa `registerGrantType`**
 
 Trong `lib/provider.js`, chèn ngay **trước** dòng `grantTypeParams.set(name, grantParams);`:
 
@@ -1248,7 +1266,7 @@ Trong `lib/provider.js`, chèn ngay **trước** dòng `grantTypeParams.set(name
     }
 ```
 
-- [ ] **Step 4: Tạo config dùng chung cho Task 8 và 9**
+- [x] **Step 4: Tạo config dùng chung cho Task 8 và 9**
 
 Tạo `test/fork_provider/fork_provider.config.js`:
 
@@ -1272,7 +1290,7 @@ export default {
 };
 ```
 
-- [ ] **Step 5: Dịch test từ Task 4 (phần grantTypeParamsDefault)**
+- [x] **Step 5: Dịch test từ Task 4 (phần grantTypeParamsDefault)**
 
 Tạo `test/fork_provider/grant_type_params_default.test.js`:
 
@@ -1329,7 +1347,7 @@ describe('fork: grantTypeParamsDefault', () => {
 
 Điều chỉnh `bootstrap(...)` theo kết luận Step 1.
 
-- [ ] **Step 6: Chạy test**
+- [x] **Step 6: Chạy test**
 
 ```bash
 npx mocha --timeout 3000 test/fork_provider/grant_type_params_default.test.js
@@ -1337,7 +1355,7 @@ npx mocha --timeout 3000 test/fork_provider/grant_type_params_default.test.js
 
 Expected: PASS, 2 test, khớp từng khẳng định với Task 4.
 
-- [ ] **Step 7: Sinh lại docs và lint**
+- [x] **Step 7: Sinh lại docs và lint**
 
 ```bash
 node docs/update-configuration.js
@@ -1347,7 +1365,7 @@ git diff --stat docs/README.md
 
 Expected: `docs/README.md` có thêm mục `grantTypeParamsDefault`. Nếu diff rỗng, khối JSDoc ở Step 2 sai format — đối chiếu với khối `extraParams` ngay trên nó.
 
-- [ ] **Step 8: Chạy cả suite**
+- [x] **Step 8: Chạy cả suite**
 
 ```bash
 npm test
@@ -1355,7 +1373,7 @@ npm test
 
 Expected: PASS. Đặc biệt `test/custom_grants/` phải xanh — nó dùng `registerGrantType`.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add lib/provider.js lib/helpers/defaults.js docs/README.md test/fork_provider/

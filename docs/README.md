@@ -512,6 +512,7 @@ location / {
 - [extraTokenClaims](#extratokenclaims) - Additional Access Token Claims
 - [fetch](#fetch) - Fetching External Resources
 - [fetchResponseBodyLimits](#fetchresponsebodylimits) - Fetch Response Body Size Limits
+- [grantTypeParamsDefault](#granttypeparamsdefault) - Additional Parameters for Every Registered Grant Type
 - [issueRefreshToken](#issuerefreshtoken) - Refresh Token Issuance Policy
 - [loadExistingGrant](#loadexistinggrant) - Loading Existing Grants
 - [pairwiseIdentifier](#pairwiseidentifier) - Pairwise Subject Identifier Generation
@@ -4180,6 +4181,32 @@ _**default value**_:
     }
   }
 }
+```
+</details>
+
+---
+
+### grantTypeParamsDefault
+
+Additional Parameters for Every Registered Grant Type  
+
+Specifies additional parameter names that shall be recognized at the token endpoint for every grant type registered through `Provider.prototype.registerGrantType`. These parameters are injected in addition to the ones a grant type declares for itself, and become available in `ctx.oidc.params` inside the grant type handler. 
+
+Note: Only grant types registered after this configuration is in place are affected, which is every grant type registered through `registerGrantType` since the configuration is read at registration time. The built-in grant types are unaffected. 
+
+Note: This is a fork-specific extension, it is not part of upstream oidc-provider. 
+
+  
+
+
+_**default value**_:
+```js
+[]
+```
+<a id="grant-type-params-default-making-partner-available-to-every-registered-grant-type"></a><details><summary>Example: (Click to expand) Making `partner` available to every registered grant type.</summary><br>
+
+```js
+const grantTypeParamsDefault = ['partner'];
 ```
 </details>
 
