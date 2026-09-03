@@ -1567,7 +1567,7 @@ git commit -m "feat: thêm config cookies.prefix"
 - Consumes: `ctx.oidc.params.partner`, `ctx.oidc.params.ui_mode` — chỉ có mặt khi app đăng ký qua `extraParams`
 - Produces: hai key `partner` / `ui_mode` trong object `out` của authorization endpoint, đi qua mọi response mode.
 
-- [ ] **Step 1: Sửa `respond.js`**
+- [x] **Step 1: Sửa `respond.js`**
 
 Chèn ngay sau khối `if (params.state !== undefined) { out.state = params.state; }`:
 
@@ -1583,7 +1583,7 @@ Chèn ngay sau khối `if (params.state !== undefined) { out.state = params.stat
 
 Giữ đúng thứ tự `ui_mode` trước `partner` như bản v7 — thứ tự key ảnh hưởng thứ tự tham số trong URL trả về, và có thể có client đang so khớp chuỗi.
 
-- [ ] **Step 2: Dịch config và test từ Task 1**
+- [x] **Step 2: Dịch config và test từ Task 1**
 
 Tạo `test/fork_params/fork_params.config.js`:
 
@@ -1619,7 +1619,7 @@ import bootstrap from '../test_helper.js';
 
 và `before(bootstrap(import.meta.url));`, `url.parse` thay `parseUrl`. Giữ **y nguyên** cả bốn assertion.
 
-- [ ] **Step 3: Chạy test**
+- [x] **Step 3: Chạy test**
 
 ```bash
 npx mocha --timeout 3000 test/fork_params/fork_params.test.js
@@ -1627,7 +1627,7 @@ npx mocha --timeout 3000 test/fork_params/fork_params.test.js
 
 Expected: PASS, 4 test, khớp từng khẳng định với Task 1.
 
-- [ ] **Step 4: Kiểm patch đi qua response mode khác**
+- [x] **Step 4: Kiểm patch đi qua response mode khác**
 
 `out` được truyền vào response mode, nên hai key phải xuất hiện ở `form_post` nữa. Thêm vào cuối file test:
 
@@ -1658,14 +1658,14 @@ describe('fork: partner and ui_mode via form_post', () => {
 
 Nếu `form_post` cần bật feature nào, thêm vào config và ghi chú. Nếu v9 từ chối tổ hợp này, bỏ test và ghi rõ vì sao — đừng nới config chỉ để test chạy.
 
-- [ ] **Step 5: Chạy lint và cả suite**
+- [x] **Step 5: Chạy lint và cả suite**
 
 ```bash
 npm run lint
 npm test
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add lib/actions/authorization/respond.js test/fork_params/
