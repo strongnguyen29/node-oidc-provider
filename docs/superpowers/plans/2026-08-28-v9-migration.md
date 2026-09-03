@@ -2850,7 +2850,7 @@ git commit -m "feat: đặt cookie _SID chia sẻ root-domain qua middleware pro
 - Consumes: toàn bộ Task 7-17
 - Produces: bằng chứng để tuyên bố hoàn thành, hoặc danh sách việc còn lại.
 
-- [ ] **Step 1: Suite đầy đủ**
+- [x] **Step 1: Suite đầy đủ**
 
 ```bash
 npm run lint
@@ -2859,7 +2859,7 @@ npm test
 
 Expected: PASS cả hai. Số test = mốc Task 7 Step 3 + số test fork đã thêm.
 
-- [ ] **Step 2: Ma trận mounted**
+- [x] **Step 2: Ma trận mounted**
 
 ```bash
 npm run test-ci
@@ -2869,7 +2869,7 @@ Expected: PASS ở cả express / koa / hapi / fastify.
 
 Đây là chỗ bắt lỗi hardcode đường dẫn: test nào của fork hardcode `/auth` hay `/token` mà không tính `process.env.MOUNT_TO` sẽ đỏ ở đây. Nếu `test-ci` chỉ đỏ ở chế độ mounted, sửa test của fork để dùng `MOUNT_TO`, **đừng** sửa lib.
 
-- [ ] **Step 3: Đối chiếu từng patch với Phần I**
+- [x] **Step 3: Đối chiếu từng patch với Phần I**
 
 Với mỗi cặp, mở hai file test và so từng assertion:
 
@@ -2905,7 +2905,7 @@ Trong repo app: cài file `.tgz` vừa tạo, chạy suite của app, rồi kh�
 - Cookie có đúng tiền tố cấu hình.
 - Userinfo nhận access token scope `api_profile_get`.
 
-- [ ] **Step 5: Kiểm `docs/README.md` đã sinh đủ**
+- [x] **Step 5: Kiểm `docs/README.md` đã sinh đủ**
 
 ```bash
 node docs/update-configuration.js
@@ -2925,6 +2925,35 @@ git push -u origin vlive/oidc-provider-v9
 ```
 
 **Không** merge vào `main`, **không** force-push lên `vlive/oidc-provider`, **không** `npm publish`. Ba việc đó là quyết định của chủ fork sau khi đọc kết quả nghiệm thu.
+
+## KẾT QUẢ NGHIỆM THU (2026-09-03, Node 22.23.0)
+
+**Step 1 — lint + test:** `npm run lint` sạch (456 file). `npm test` **3284 passing /
+6 pending / 0 failing**, exit 0. Mốc upstream ở Task 7 là 3227; fork thêm 57 test
+(4+6+7+5+9+21+3 = 55 test fork, cộng 2 test URN mới trong ma trận introspection).
+
+**Step 2 — ma trận mounted:** `npm run test-ci` exit 0, **3284 passing ở cả bốn chế độ**
+express / koa-mount / hapi / fastify. Không test nào của fork hardcode đường dẫn sai.
+Chạy với `CI=true` nên `forbidOnly()` cũng đã xác nhận không có `.only` nào bị commit.
+
+**Step 3 — đối chiếu từng assertion v7 vs v9:** làm bằng máy, so tiêu đề `it(...)` trích
+từ cả hai nhánh. **28/28 assertion của v7 sang v9 nguyên vẹn, không mất cái nào.** v9
+thêm 8 assertion: 3 của Task 15, 3 cho nhánh mặc định `userinfoRequiredScopes`, 2 cho
+nhánh không prefix.
+
+Ma trận introspection (tiêu đề template nên so riêng): v7 có 14 ô, v9 strict có 16 ô —
+**11 ô giống nguyên giá trị, 2 ô đổi giá trị** (`AccessToken×client_credentials` và
+`ClientCredentials×access_token`, cả hai false→true), **1 ô giữ giá trị nhưng đổi lý do**
+(`ClientCredentials×client_credentials`), **2 ô mới** dạng URN. Cả ba khác biệt đã có
+giải thích trong commit của Task 14. Không có khác biệt nào chưa giải thích.
+
+**Step 5 — docs:** `git diff docs/README.md` rỗng sau khi chạy lại
+`node docs/update-configuration.js`. Cả bốn config fork đều có mặt.
+
+**Step 4 — smoke test ở repo app: CHƯA LÀM.** Nằm ngoài repo này, phụ thuộc Task 17.
+
+**Step 6 — push: CHƯA LÀM.** Chờ quyết định của chủ fork; remote hiện chưa có nhánh
+`vlive/oidc-provider` lẫn `vlive/oidc-provider-v9`.
 
 - [ ] **Step 7: Viết báo cáo nghiệm thu**
 
