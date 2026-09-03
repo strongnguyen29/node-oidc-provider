@@ -248,7 +248,7 @@ git commit -m "test: đặc tả hành vi echo partner/ui_mode của fork"
 - Consumes: `test/test_helper.js`, `this.provider.Grant`, `this.provider.RefreshToken`, `this.provider.Client`
 - Produces: `mintRefreshToken(ctx, amr) -> Promise<string>` và `exchange(agent, refresh_token) -> supertest.Test`, hai helper cục bộ được Task 11 dùng lại nguyên văn.
 
-- [ ] **Step 1: Viết config**
+- [x] **Step 1: Viết config**
 
 Tạo `test/fork_tracking/fork_tracking.config.js`:
 
@@ -274,7 +274,7 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 2: Viết test**
+- [x] **Step 2: Viết test**
 
 Tạo `test/fork_tracking/fork_tracking.test.js`:
 
@@ -374,7 +374,7 @@ describe('fork: trackingAction and the refresh_token event', () => {
 });
 ```
 
-- [ ] **Step 3: Chạy test và ghi lại hành vi thật**
+- [x] **Step 3: Chạy test và ghi lại hành vi thật**
 
 ```bash
 npx mocha --timeout 3000 test/fork_tracking/fork_tracking.test.js
@@ -385,13 +385,13 @@ Hai điểm dễ lệch — nếu đỏ thì **sửa test theo output thật**, 
 1. `mintRefreshToken` có thể thiếu field bắt buộc. Đọc lỗi và bổ sung theo `lib/models/refresh_token.js` + `lib/models/mixins/stores_auth.js`.
 2. Nếu `amr: ['pwd']` cho giá trị khác `'loginpwd'`, ghi đúng giá trị thật vào assertion. Đó là hợp đồng cần bảo toàn.
 
-- [ ] **Step 4: Chạy cả suite**
+- [x] **Step 4: Chạy cả suite**
 
 ```bash
 npm test
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add test/fork_tracking/
