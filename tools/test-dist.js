@@ -38,11 +38,13 @@ const [suppliedTarball, ...extraArguments] = process.argv.slice(2);
 if (extraArguments.length !== 0) throw new Error("expected at most one package tarball");
 const runBehaviorTests = suppliedTarball === undefined;
 
-const IMPORT_ALL = `import { readdirSync, statSync } from 'node:fs';
+// fork: tên package không còn là 'oidc-provider' nên đường dẫn trong node_modules
+// và specifier của entry point phải suy ra từ manifest, không hardcode.
+const importAllSource = (packageName) => `import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const base = 'node_modules/oidc-provider/lib';
+const base = 'node_modules/${packageName}/lib';
 const files = [];
 (function walk(dir) {
   for (const entry of readdirSync(dir)) {
@@ -54,9 +56,9 @@ const files = [];
 
 const failures = [];
 try {
-  await import('oidc-provider');
+  await import('${packageName}');
 } catch (err) {
-  failures.push(\`  oidc-provider entry point: \${err.code ?? err.name} \${err.message.split('\\n')[0]}\`);
+  failures.push(\`  ${packageName} entry point: \${err.code ?? err.name} \${err.message.split('\\n')[0]}\`);
 }
 
 for (const file of files) {
@@ -134,7 +136,7 @@ try {
     ["install", "--install-strategy=nested", "--omit=dev", "--no-audit", "--no-fund", tarball],
     isolated,
   );
-  writeFileSync(join(isolated, "import-all.mjs"), IMPORT_ALL);
+  writeFileSync(join(isolated, "import-all.mjs"), importAllSource(packedManifest.name));
   run(process.execPath, ["import-all.mjs"], isolated);
 
   if (runBehaviorTests) {

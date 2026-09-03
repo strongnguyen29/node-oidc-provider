@@ -2636,7 +2636,7 @@ git commit -m "test: chốt hành vi v9 khi bỏ patch client_schema grant_types
 
 `CLAUDE.md` hiện tại viết cho v7 và **gần như mọi mục đều sai** trên nhánh v9. Câu sai trong file này sẽ dẫn sai người (và agent) làm việc sau.
 
-- [ ] **Step 1: Sửa mục Repository**
+- [x] **Step 1: Sửa mục Repository**
 
 - Đổi "Active development happens on the `v7.x` branch (the upstream Node 12/14/16/18 line)" thành nhánh `vlive/oidc-provider-v9` trên nền upstream 9.11.5.
 - Đổi "diff against `panva/v7.x`" thành "diff against `origin/main` (mirror của `panva/main`)".
@@ -2660,7 +2660,7 @@ Hai endpoint device flow qua access token (`/device/code-check`,
 đã bị bỏ khi lên v9, không port.
 ```
 
-- [ ] **Step 2: Sửa mục Common commands**
+- [x] **Step 2: Sửa mục Common commands**
 
 - `npm install` — bỏ "Node 12 || 14 || 16 || 18 only", đổi thành Node 22+.
 - Xoá `npm run format` (eslint không còn), thay bằng `npm run lint` (biome).
@@ -2670,7 +2670,7 @@ Hai endpoint device flow qua access token (`/device/code-check`,
   ở v9 nó có chạy được không — v9 bỏ `jose2` nên `test/run.js` dựng ít global hơn,
   có thể công thức này đúng ở v9. Chỉ ghi vào `CLAUDE.md` sau khi đã chạy thử thật.
 
-- [ ] **Step 3: Sửa đoạn nói về `test/run.js`**
+- [x] **Step 3: Sửa đoạn nói về `test/run.js`**
 
 Câu hiện tại sai hai chỗ: v9 `test/run.js` **không** còn dựng `global.keystore` (jose2 đã bị bỏ), và **không** gọi `forbidPending`. Sửa thành:
 
@@ -2683,7 +2683,7 @@ dùng chung ở `globalThis.server` trước khi mocha nạp `test/**/*.test.js`
 commit `.only`.
 ```
 
-- [ ] **Step 4: Sửa mục Architecture**
+- [x] **Step 4: Sửa mục Architecture**
 
 Thêm khối này, và xoá mọi câu cũ nói ngược lại:
 
@@ -2704,21 +2704,21 @@ không chạy. Provider cũng không còn handler 404 catch-all.
 - Bỏ `paseto` khỏi danh sách format trong `lib/models/formats/` (v8 đã xoá).
 - Bỏ `connect` khỏi danh sách framework (v9 đã bỏ hỗ trợ).
 
-- [ ] **Step 5: Sửa mục Conventions**
+- [x] **Step 5: Sửa mục Conventions**
 
 - **"CommonJS only"** → **"ESM only"**. Đây là câu sai nghiêm trọng nhất trong file.
 - Bỏ "no ESM", "targets Node 12+".
 - Bỏ đoạn ESLint airbnb-base + babel-eslint, thay bằng biome (`biome.json`).
 - Kiểm `.eslintrc` còn tồn tại không; nếu không, xoá đoạn về allowed dangling-underscore và đối chiếu lại với `biome.json`.
 
-- [ ] **Step 6: Sửa mục Tests**
+- [x] **Step 6: Sửa mục Tests**
 
 - chai 4 → chai 6.
 - `bootstrap(__dirname)` → `bootstrap(import.meta.url)`.
 - Kiểm `nock` còn không: `grep -n nock package.json`. Nếu không, đổi thành `undici`.
 - Thêm danh sách thư mục test của fork: `test/fork_params/`, `test/fork_tracking/`, `test/fork_session/`, `test/fork_provider/`, `test/fork_provider_noprefix/`, `test/fork_userinfo/`, `test/fork_userinfo_default/`, `test/fork_introspection/`, `test/fork_introspection_lax/`, `test/fork_client_schema/`.
 
-- [ ] **Step 7: Kiểm từng câu lệnh trong file thật sự chạy được**
+- [x] **Step 7: Kiểm từng câu lệnh trong file thật sự chạy được**
 
 ```bash
 npm run lint
@@ -2731,7 +2731,28 @@ ls .eslintrc* biome.json 2>&1
 
 Mọi lệnh nêu trong `CLAUDE.md` phải chạy được thật. Câu nào không kiểm được thì xoá — đừng để lại phỏng đoán.
 
-- [ ] **Step 8: Commit**
+**Bước này phát hiện một patch thứ 8 mà kế hoạch không lường (tooling, không phải lib):**
+
+`npm run test-dist` **đỏ** sau khi Task 7 đổi tên package. `tools/test-dist.js` hardcode
+`node_modules/oidc-provider/lib` và `await import('oidc-provider')` trong script
+`IMPORT_ALL`, nên với tên `@strongnguyen/oidc-provider` nó gặp
+`ENOENT: scandir 'node_modules/oidc-provider/lib'`.
+
+Sửa: biến `IMPORT_ALL` thành hàm `importAllSource(packageName)` và truyền
+`packedManifest.name` vào. Đây là chỗ **bắt buộc** phải sửa với mọi fork đổi tên
+package, và chỉ lộ ra khi chạy lệnh thật — `npm test` không bắt được.
+
+Sau khi sửa, `test-dist` xanh: 3284 passing trên chính tarball sẽ phát hành, và pass 1
+(import mọi module đã publish chỉ với runtime dependency đã khai) cũng qua — xác nhận
+7 patch fork không kéo theo dependency nào chưa khai.
+
+**Ghi chú cần chuyển tới chủ fork, không sửa trong phạm vi này:** script
+`"publish": "npm run lint && npm publish --access public"` mang từ v7 sang có nguy cơ
+đệ quy — `publish` là một lifecycle event của npm, chạy **sau** khi publish xong, nên
+`npm publish` sẽ gọi lại chính script này. Fork đã dùng nó từ v7 nên đây là hiện trạng,
+không phải hồi quy; nhưng nếu muốn sạch thì đổi tên thành `release`.
+
+- [x] **Step 8: Commit**
 
 ```bash
 git add CLAUDE.md
