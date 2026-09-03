@@ -1,6 +1,6 @@
 {
-  "name": "oidc-provider",
-  "version": "9.11.5",
+  "name": "@strongnguyen/oidc-provider",
+  "version": "9.11.6",
   "description": "OAuth 2.0 Authorization Server implementation for Node.js with OpenID Connect",
   "keywords": [
     "appauth",
@@ -37,8 +37,8 @@
     "provider",
     "server"
   ],
-  "homepage": "https://github.com/panva/node-oidc-provider",
-  "repository": "panva/node-oidc-provider",
+  "homepage": "https://github.com/strongnguyen29/node-oidc-provider",
+  "repository": "strongnguyen29/node-oidc-provider",
   "funding": {
     "url": "https://github.com/sponsors/panva"
   },
@@ -55,7 +55,8 @@
     "test": "node ./test/run",
     "test-dist": "node ./tools/test-dist.js",
     "test-ci": "node ./test/ci",
-    "lint": "biome lint"
+    "lint": "biome lint",
+    "publish": "npm run lint && npm publish --access public"
   },
   "dependencies": {
     "debug": "^4.4.3",
@@ -93,5 +94,9 @@
     "supertest": "^7.2.2",
     "timekeeper": "^2.3.1",
     "undici": "^8.10.0"
+  },
+  "overrides": {
+    "serialize-javascript": "^7.0.5",
+    "diff": "^9.0.0"
   }
 }
