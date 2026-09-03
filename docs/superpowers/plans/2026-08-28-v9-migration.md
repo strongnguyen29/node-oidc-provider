@@ -414,7 +414,7 @@ git commit -m "test: đặc tả trackingAction và event refresh_token, gồm c
 
 Hai file test vì test nhánh `ctx.req.deviceId` cần một middleware, và middleware thêm vào provider **không xoá được** — nó phải có provider riêng.
 
-- [ ] **Step 1: Viết hai config**
+- [x] **Step 1: Viết hai config**
 
 Tạo `test/fork_session/fork_session.config.js`:
 
@@ -437,7 +437,7 @@ module.exports = {
 
 Tạo `test/fork_session/fork_session_device.config.js` với **nội dung y hệt** (cần file riêng để có provider riêng, không phải vì config khác).
 
-- [ ] **Step 2: Viết test chính**
+- [x] **Step 2: Viết test chính**
 
 Tạo `test/fork_session/fork_session.test.js`:
 
@@ -489,7 +489,7 @@ describe('fork: session loginFrom and deviceId', () => {
 });
 ```
 
-- [ ] **Step 3: Viết test nhánh `ctx.req.deviceId`**
+- [x] **Step 3: Viết test nhánh `ctx.req.deviceId`**
 
 Tạo `test/fork_session/fork_session_device.test.js`:
 
@@ -499,15 +499,20 @@ const { expect } = require('chai');
 const bootstrap = require('../test_helper');
 
 describe('fork: session picks up ctx.req.deviceId', () => {
-  before(bootstrap(__dirname, 'fork_session_device'));
+  // Tham số thứ hai của bootstrap là object { config }, KHÔNG phải string.
+  before(bootstrap(__dirname, { config: 'fork_session_device' }));
 
   before(function () {
-    // Trên v7 provider.use có thể không tồn tại — xem Step 4.
-    this.provider.app.use(async (ctx, next) => {
+    // Phải là provider.use(), KHÔNG phải provider.app.use() — xem Step 4.
+    this.provider.use(async (ctx, next) => {
       ctx.req.deviceId = 'device-2';
       await next();
     });
   });
+
+  // Cần login trước: không có session thì /auth đòi interaction và
+  // authorization.accepted không bao giờ emit.
+  before(function () { return this.login(); });
 
   it('copies it onto the session', async function () {
     let seen = 'not-set';
@@ -538,7 +543,7 @@ describe('fork: session picks up ctx.req.deviceId', () => {
 });
 ```
 
-- [ ] **Step 4: Kiểm ba giả định về API của test helper và provider**
+- [x] **Step 4: Kiểm ba giả định về API của test helper và provider**
 
 Chạy trước khi debug test:
 
@@ -548,13 +553,13 @@ grep -n "^  use(" lib/provider.js
 grep -n "authorization.accepted" -r lib/actions/ | head -3
 ```
 
-Ba điều cần biết:
+Ba điều cần biết. **Đã kiểm ngày 2026-09-03, cả ba đều có bẫy — kết luận:**
 
-1. **`bootstrap` có nhận tham số thứ hai không?** Nếu chỉ nhận `__dirname` và tự suy tên config từ tên thư mục, thì `fork_session_device.config.js` không được tìm thấy → tách thành thư mục riêng `test/fork_session_device/`. Ghi lại kết luận, vì Task 8-14 đều dựa vào nó.
-2. **`provider.use` có tồn tại trên v7?** Nếu không, dùng `this.provider.app.use(...)` (đã viết vậy ở Step 3). Ghi chú lại: Task 12 trên v9 dùng `provider.use()` vì `Provider extends Koa`.
-3. **Event `authorization.accepted` có ctx với session chưa?** Nếu không, đổi sang `assertOnce` — đọc chữ ký bằng `grep -n "assertOnce" -A 15 test/test_helper.js`.
+1. **`bootstrap(dir, opts)` nhận tham số thứ hai, nhưng là OBJECT `{ config, protocol, mountVia, mountTo }`, không phải string** (`test/test_helper.js:63-68`). `config` mặc định `path.basename(dir)`. Truyền string như `bootstrap(__dirname, 'fork_session_device')` **không báo lỗi** — destructuring một string cho ra `config === undefined` nên rơi về default `'fork_session'`, tức **lặng lẽ nạp sai config**. Dạng đúng: `bootstrap(__dirname, { config: 'fork_session_device' })`. Nhờ vậy hai config **ở cùng một thư mục** được, không cần tách `test/fork_session_device/`. Áp dụng cho cả Task 8-14.
+2. **`provider.use` CÓ tồn tại trên v7** (`lib/provider.js:347`) và nó splice middleware vào **trước** middleware nội bộ (mốc `firstInternal` ở `initialize_app.js:242`) — cùng ngữ nghĩa với v9. **Phải dùng `provider.use()`**; `provider.app.use()` append vào cuối stack nên chạy *sau* session middleware, đặt `ctx.req.deviceId` quá muộn và patch không thấy gì. Đã kiểm bằng thực nghiệm: đổi sang `app.use()` thì test `copies it onto the session` đỏ, đổi lại thì xanh.
+3. **`authorization.accepted` emit ở `lib/actions/authorization/interactions.js:74` với `ctx`, nhưng chỉ khi request KHÔNG cần interaction.** Nên phải `this.login()` trước, không thì `/auth` chuyển hướng sang interaction và event không bao giờ emit. Không cần `assertOnce`.
 
-- [ ] **Step 5: Chạy cả hai file**
+- [x] **Step 5: Chạy cả hai file**
 
 ```bash
 npx mocha --timeout 3000 test/fork_session/fork_session.test.js test/fork_session/fork_session_device.test.js
@@ -562,13 +567,13 @@ npx mocha --timeout 3000 test/fork_session/fork_session.test.js test/fork_sessio
 
 Expected: PASS, 7 test.
 
-- [ ] **Step 6: Chạy cả suite**
+- [x] **Step 6: Chạy cả suite**
 
 ```bash
 npm test
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add test/fork_session/
@@ -1712,8 +1717,8 @@ git commit -m "feat: đặt ctx.trackingAction và phát event refresh_token"
 - Modify: `lib/models/session.js` (`IN_PAYLOAD`, `static async get`, `loginAccount`)
 - Create: `test/fork_session/fork_session.config.js`
 - Create: `test/fork_session/fork_session.test.js`
-- Create: `test/fork_session_device/fork_session_device.config.js`
-- Create: `test/fork_session_device/fork_session_device.test.js`
+- Create: `test/fork_session/fork_session_device.config.js`
+- Create: `test/fork_session/fork_session_device.test.js`
 
 **Interfaces:**
 - Consumes: `ctx.req.deviceId` — do middleware của app đặt, thư viện không tự suy ra
@@ -1819,9 +1824,9 @@ Tạo `test/fork_session/fork_session.test.js` — dịch nguyên văn từ Task
 
 Thư mục riêng vì middleware không xoá được.
 
-Tạo `test/fork_session_device/fork_session_device.config.js` — nội dung y hệt config ở Step 4.
+Tạo `test/fork_session/fork_session_device.config.js` — nội dung y hệt config ở Step 4.
 
-Tạo `test/fork_session_device/fork_session_device.test.js`:
+Tạo `test/fork_session/fork_session_device.test.js`:
 
 ```js
 import { expect } from 'chai';
@@ -1872,7 +1877,7 @@ describe('fork: session picks up ctx.req.deviceId', () => {
 - [ ] **Step 6: Chạy cả hai file**
 
 ```bash
-npx mocha --timeout 3000 test/fork_session/fork_session.test.js test/fork_session_device/fork_session_device.test.js
+npx mocha --timeout 3000 test/fork_session/fork_session.test.js test/fork_session/fork_session_device.test.js
 ```
 
 Expected: PASS, 8 test.
@@ -1889,7 +1894,7 @@ Expected: PASS. `test/interaction/`, `test/end_session/`, `test/auth_time/` — 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add lib/models/session.js test/fork_session/ test/fork_session_device/
+git add lib/models/session.js test/fork_session/
 git commit -m "feat: thêm loginFrom và deviceId vào Session
 
 Bỏ đoạn early-return ctx.oidc.entities.Session của bản v7: nó chỉ phục vụ
@@ -2612,7 +2617,7 @@ không chạy. Provider cũng không còn handler 404 catch-all.
 - chai 4 → chai 6.
 - `bootstrap(__dirname)` → `bootstrap(import.meta.url)`.
 - Kiểm `nock` còn không: `grep -n nock package.json`. Nếu không, đổi thành `undici`.
-- Thêm danh sách thư mục test của fork: `test/fork_params/`, `test/fork_tracking/`, `test/fork_session/`, `test/fork_session_device/`, `test/fork_provider/`, `test/fork_provider_noprefix/`, `test/fork_userinfo/`, `test/fork_userinfo_default/`, `test/fork_introspection/`, `test/fork_introspection_lax/`, `test/fork_client_schema/`.
+- Thêm danh sách thư mục test của fork: `test/fork_params/`, `test/fork_tracking/`, `test/fork_session/`, `test/fork_provider/`, `test/fork_provider_noprefix/`, `test/fork_userinfo/`, `test/fork_userinfo_default/`, `test/fork_introspection/`, `test/fork_introspection_lax/`, `test/fork_client_schema/`.
 
 - [ ] **Step 7: Kiểm từng câu lệnh trong file thật sự chạy được**
 
@@ -2856,4 +2861,6 @@ Không có mục spec nào thiếu task.
 
 **Điểm yếu đã biết của kế hoạch này:**
 
-Chữ ký `bootstrap(import.meta.url, name)` **chưa được xác minh** trên v9 — Task 8 Step 1 là bước chặn, yêu cầu kiểm trước khi Task 9-15 dựa vào nó. Kế hoạch đã giảm thiểu bằng cách cho mọi suite phụ dùng **thư mục riêng** (`fork_provider_noprefix`, `fork_userinfo_default`, `fork_introspection_lax`, `fork_session_device`) thay vì file config phụ cùng thư mục. Chỉ hai chỗ còn dựa vào tham số thứ hai: Task 8 Step 5 và Task 9 Step 3, cả hai đều trỏ vào `fork_provider`. Nếu helper không nhận tham số thứ hai, tách `grant_type_params_default.test.js` và `cookie_prefix.test.js` thành hai thư mục riêng, mỗi thư mục một config.
+Chữ ký `bootstrap(import.meta.url, name)` **chưa được xác minh** trên v9 — Task 8 Step 1 là bước chặn, yêu cầu kiểm trước khi Task 9-15 dựa vào nó.
+
+**Dữ kiện từ v7 (đã kiểm, Task 3 Step 4):** trên v7 chữ ký là `bootstrap(dir, { config })` — tham số thứ hai là **object**, và truyền string vào sẽ **lặng lẽ nạp sai config** thay vì báo lỗi. Nếu v9 giữ dạng object thì mọi suite phụ dùng chung thư mục được và bốn thư mục riêng ở trên là không cần thiết. Kiểm bằng `grep -n "export default function testHelper" -A 10 test/test_helper.js` trên nhánh v9, và **đừng** tin vào việc test xanh để suy ra config đã nạp đúng — hãy khẳng định trực tiếp một giá trị chỉ có trong config phụ. Kế hoạch đã giảm thiểu bằng cách cho mọi suite phụ dùng **thư mục riêng** (`fork_provider_noprefix`, `fork_userinfo_default`, `fork_introspection_lax`, `fork_session_device`) thay vì file config phụ cùng thư mục. Chỉ hai chỗ còn dựa vào tham số thứ hai: Task 8 Step 5 và Task 9 Step 3, cả hai đều trỏ vào `fork_provider`. Nếu helper không nhận tham số thứ hai, tách `grant_type_params_default.test.js` và `cookie_prefix.test.js` thành hai thư mục riêng, mỗi thư mục một config.
