@@ -904,7 +904,7 @@ git commit -m "test: đặc tả userinfo chấp nhận scope api_profile_get"
 - Consumes: `this.provider.AccessToken` / `RefreshToken` / `ClientCredentials` / `Grant` / `Client`
 - Produces: `mint(ctx, kind) -> Promise<string>` với `kind` là `'AccessToken' | 'RefreshToken' | 'ClientCredentials'`, và ma trận `cases` dạng `[kind, hint, expectedActive]`. Task 14 dùng lại cả hai, với hai ô đã biết sẽ khác.
 
-- [ ] **Step 1: Viết config**
+- [x] **Step 1: Viết config**
 
 Tạo `test/fork_introspection/fork_introspection.config.js`:
 
@@ -931,7 +931,7 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 2: Viết test**
+- [x] **Step 2: Viết test**
 
 Tạo `test/fork_introspection/fork_introspection.test.js`:
 
@@ -1012,7 +1012,7 @@ describe('fork: introspection does not cross-look-up on token_type_hint', () => 
 });
 ```
 
-- [ ] **Step 3: Chạy, ghi lại ma trận thật**
+- [x] **Step 3: Chạy, ghi lại ma trận thật**
 
 ```bash
 npx mocha --timeout 3000 test/fork_introspection/fork_introspection.test.js
@@ -1020,28 +1020,46 @@ npx mocha --timeout 3000 test/fork_introspection/fork_introspection.test.js
 
 Sửa mọi ô lệch theo output thật — mục đích của task này là **chụp ảnh** hành vi, không phải áp đặt.
 
-- [ ] **Step 4: Đánh dấu hai ô sẽ đổi ở v9**
+- [x] **Step 4: Đánh dấu hai ô sẽ đổi ở v9**
 
 Sau khi xanh, chèn ngay dưới `const cases = [...]`:
 
+**Đã kiểm: cả 14 ô khớp đúng dự đoán ở v7. Nhưng số ô sẽ đổi ở v9 là BA, không
+phải hai** — kế hoạch bỏ sót `['AccessToken', 'client_credentials']`. Chú thích đã
+chèn vào test:
+
 ```js
-  // Hai ô sẽ ĐỔI khi sang v9 (xem Task 14):
+  // Ba ô sẽ ĐỔI khi sang v9 (xem Task 14). Đối chiếu lib/helpers/token_find.js
+  // của v9: hint 'access_token' tra [AccessToken, ClientCredentials] rồi fallback
+  // RefreshToken; hint 'refresh_token' tra RefreshToken rồi fallback
+  // [AccessToken, ClientCredentials]; mọi hint khác rơi vào default tra cả ba.
+  // Chế độ strict ở v9 chỉ chặn fallback RA NGOÀI nhóm của hint, không chia nhỏ
+  // trong nhóm — nên:
+  //
   //   ['ClientCredentials', 'access_token', false]      -> true ở v9
+  //       ClientCredentials nằm CÙNG nhóm với AccessToken cho hint
+  //       'access_token', vì theo RFC 7662 cả hai đều LÀ access token.
+  //
+  //   ['AccessToken', 'client_credentials', false]      -> true ở v9
+  //       v9 không còn nhận 'client_credentials' là hint hợp lệ, nên rơi vào
+  //       nhánh default tra cả ba. (Kế hoạch bỏ sót ô này.)
+  //
   //   ['ClientCredentials', 'client_credentials', true] -> vẫn true, nhưng vì
-  //       rơi vào nhánh default chứ không phải vì hint được nhận
-  // Lý do: v9 gộp AccessToken và ClientCredentials vào cùng nhóm cho hint
-  // "access_token" (cả hai đều LÀ access token theo RFC 7662), và v9 không
-  // còn nhận "client_credentials" là hint hợp lệ. Chế độ strict ở v9 chỉ
-  // chặn fallback RA NGOÀI nhóm của hint, không chia nhỏ trong nhóm.
+  //       rơi vào nhánh default chứ không phải vì hint được nhận.
+  //
+  // Mười một ô còn lại phải giữ nguyên giá trị ở v9.
 ```
 
-- [ ] **Step 5: Chạy cả suite**
+Lưu ý cho Task 14: vòng lặp phải là `cases.forEach(...)`, **không** `for...of` —
+eslint airbnb chặn `for...of` bằng `no-restricted-syntax`.
+
+- [x] **Step 5: Chạy cả suite**
 
 ```bash
 npm test
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add test/fork_introspection/
