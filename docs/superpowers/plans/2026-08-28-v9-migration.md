@@ -2207,8 +2207,7 @@ git commit -m "feat: thêm config userinfoRequiredScopes"
 - Modify: `lib/actions/introspection.js` (truyền `strict` vào `createTokenFinder`)
 - Create: `test/fork_introspection/fork_introspection.config.js`
 - Create: `test/fork_introspection/fork_introspection.test.js`
-- Create: `test/fork_introspection_lax/fork_introspection_lax.config.js`
-- Create: `test/fork_introspection_lax/fork_introspection_lax.test.js`
+- Create: `test/fork_introspection/fork_introspection_lax.config.js` (config phụ **cùng thư mục**, hai `describe` chung một file — xem kết luận Task 8 Step 1)
 - Modify: `docs/README.md`
 
 **Interfaces:**
@@ -2217,16 +2216,18 @@ git commit -m "feat: thêm config userinfoRequiredScopes"
 
 **Khác spec — quan trọng:** `createTokenFinder` được dùng bởi **cả** `introspection.js` và `revocation.js`. Nhét cờ strict vào `token_find.js` sẽ đổi luôn hành vi revocation, vượt phạm vi patch v7. Vì thế cờ phải là **tham số**, và chỉ introspection truyền vào.
 
-**Khác biệt hành vi đã biết so với v7** — reviewer phải đồng ý hoặc từ chối ở cổng task này:
+**Khác biệt hành vi đã biết so với v7** — reviewer phải đồng ý hoặc từ chối ở cổng task này.
+**Đã xác nhận bằng thực nghiệm 2026-09-03: đúng BA ô đổi, 11 ô còn lại giữ nguyên.**
 
 | Token | hint | v7 fork | v9 strict | Vì sao |
 |---|---|---|---|---|
 | ClientCredentials | `access_token` | inactive | **active** | v9 gộp AccessToken + ClientCredentials vào cùng nhóm cho hint `access_token`, vì theo RFC 7662 cả hai đều LÀ access token |
-| bất kỳ | `client_credentials` | tra đúng loại | rơi vào `default`, tra cả ba | v9 không còn nhận `client_credentials` là hint hợp lệ |
+| AccessToken | `client_credentials` | inactive | **active** | `client_credentials` không còn là hint hợp lệ ở v9 nên rơi vào `default`, tra cả ba loại. **Ma trận ở Step 4 của kế hoạch bỏ sót ô này** — đã thêm lại |
+| ClientCredentials | `client_credentials` | active | active | Vẫn active nhưng vì rơi vào `default`, không phải vì hint được nhận |
 
 Chế độ strict ở đây định nghĩa là: **không fallback ra ngoài nhóm của hint**. Nó không chia nhỏ bên trong nhóm.
 
-- [ ] **Step 1: Thêm config vào `defaults.js`**
+- [x] **Step 1: Thêm config vào `defaults.js`**
 
 Trong khối `features.introspection`, chèn ngay sau `enabled: false,`:
 
@@ -2252,7 +2253,7 @@ Trong khối `features.introspection`, chèn ngay sau `enabled: false,`:
         strictTokenTypeHint: false,
 ```
 
-- [ ] **Step 2: Sửa `lib/helpers/token_find.js`**
+- [x] **Step 2: Sửa `lib/helpers/token_find.js`**
 
 Thay toàn bộ file:
 
@@ -2315,7 +2316,7 @@ export function createTokenFinder(provider, grantTypeHandlers, { strict = false 
 
 Với `strict === false` hàm này tương đương từng bước với bản upstream — điều kiện để `test/introspection/` và `test/revocation/` không đỏ.
 
-- [ ] **Step 3: Truyền cờ từ `introspection.js`**
+- [x] **Step 3: Truyền cờ từ `introspection.js`**
 
 Phần destructure config đã có `introspection: { allowedPolicy }`. Đổi thành:
 
@@ -2331,7 +2332,7 @@ Và đổi dòng khởi tạo:
 
 **Không** đụng `lib/actions/revocation.js` — nó tiếp tục gọi `createTokenFinder(provider, grantTypeHandlers)` và nhận `strict: false`.
 
-- [ ] **Step 4: Dịch config và test từ Task 6, cập nhật hai ô đã biết sẽ khác**
+- [x] **Step 4: Dịch config và test từ Task 6, cập nhật hai ô đã biết sẽ khác**
 
 Tạo `test/fork_introspection/fork_introspection.config.js`:
 
@@ -2387,7 +2388,7 @@ Tạo `test/fork_introspection/fork_introspection.test.js` — dịch từ Task 
   ];
 ```
 
-- [ ] **Step 5: Suite cho nhánh mặc định `strict: false`**
+- [x] **Step 5: Suite cho nhánh mặc định `strict: false`**
 
 Tạo `test/fork_introspection_lax/fork_introspection_lax.config.js` — giống config Step 4 nhưng **bỏ** `strictTokenTypeHint` (để mặc định).
 
@@ -2412,7 +2413,7 @@ Tạo `test/fork_introspection_lax/fork_introspection_lax.test.js` — cùng c�
   ];
 ```
 
-- [ ] **Step 6: Chạy cả hai file**
+- [x] **Step 6: Chạy cả hai file**
 
 ```bash
 npx mocha --timeout 3000 test/fork_introspection/fork_introspection.test.js test/fork_introspection_lax/fork_introspection_lax.test.js
@@ -2420,7 +2421,7 @@ npx mocha --timeout 3000 test/fork_introspection/fork_introspection.test.js test
 
 Expected: PASS. Sửa mọi ô lệch theo output thật và ghi lý do vào chú thích — **đừng** sửa lib để khớp một ô đoán sai.
 
-- [ ] **Step 7: Chạy suite upstream — cổng thật của task này**
+- [x] **Step 7: Chạy suite upstream — cổng thật của task này**
 
 ```bash
 npx mocha --timeout 3000 test/introspection/*.test.js
@@ -2434,7 +2435,7 @@ Hai bằng chứng cụ thể cần thấy:
 - Ba test upstream `[wrong hint]` / `[unrecognized hint]` trong `test/introspection/introspection.test.js` vẫn xanh → `strict: false` không hồi quy.
 - Suite revocation xanh → cờ không rò sang `revocation.js`.
 
-- [ ] **Step 8: Sinh lại docs, lint, chạy cả suite**
+- [x] **Step 8: Sinh lại docs, lint, chạy cả suite**
 
 ```bash
 node docs/update-configuration.js
@@ -2442,7 +2443,7 @@ npm run lint
 npm test
 ```
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add lib/helpers/token_find.js lib/actions/introspection.js lib/helpers/defaults.js docs/README.md test/fork_introspection/ test/fork_introspection_lax/

@@ -1467,7 +1467,8 @@ _**default value**_:
 ```js
 {
   allowedPolicy: [AsyncFunction: introspectionAllowedPolicy], // see expanded details below
-  enabled: false
+  enabled: false,
+  strictTokenTypeHint: false
 }
 ```
 
@@ -1493,6 +1494,20 @@ async function introspectionAllowedPolicy(ctx, client, token) {
   }
   return true;
 }
+```
+
+#### strictTokenTypeHint
+
+Specifies whether a recognized `token_type_hint` shall be treated as binding. When enabled, a token that does not match the hinted type is reported as inactive rather than being looked up as the other token types. When disabled, which is the default and the behaviour [RFC7662](https://www.rfc-editor.org/info/rfc7662/) recommends, the hint is only an optimisation and the remaining token types are still searched. 
+
+The recognized hints are `access_token` and `refresh_token`, together with their `urn:ietf:params:oauth:token-type:` forms. An unrecognized hint searches every token type regardless of this setting. Access tokens and client credentials tokens form a single group under the `access_token` hint and are not distinguished from one another. 
+
+Note: This is a fork-specific extension, it is not part of upstream oidc-provider. Enabling it is a deliberate deviation from RFC 7662 Section 2.1.  
+
+
+_**default value**_:
+```js
+false
 ```
 
 </details>
