@@ -524,6 +524,7 @@ location / {
 - [scopes](#scopes) - Supported OAuth 2.0 Scope Values
 - [sectorIdentifierUriValidate](#sectoridentifierurivalidate) - Sector Identifier URI Validation
 - [subjectTypes](#subjecttypes) - Subject Identifier Types
+- [userinfoRequiredScopes](#userinforequiredscopes) - Scopes Accepted at the UserInfo Endpoint
 
 
 ### adapter
@@ -4880,6 +4881,34 @@ _**default value**_:
   'public'
 ]
 ```
+
+---
+
+### userinfoRequiredScopes
+
+Scopes Accepted at the UserInfo Endpoint  
+
+Specifies the scope values of which an access token must carry at least one in order to be accepted at the userinfo endpoint. The default value of `['openid']` is the behaviour mandated by OpenID Connect Core 1.0. Additional values may be added to accept access tokens issued for non-OpenID purposes at the same endpoint. 
+
+Note: Passing the scope check is not the same as receiving claims. The claims returned are still filtered by the granted OpenID Connect scopes, so an access token that carries only a non-OpenID scope from this list is accepted but yields an empty response body, `sub` included. 
+
+Note: This is a fork-specific extension, it is not part of upstream oidc-provider. Adding values other than `openid` is a deliberate deviation from OpenID Connect Core 1.0. 
+
+  
+
+
+_**default value**_:
+```js
+[
+  'openid'
+]
+```
+<a id="userinfo-required-scopes-also-accepting-an-api-profile-get-scope"></a><details><summary>Example: (Click to expand) Also accepting an `api_profile_get` scope.</summary><br>
+
+```js
+const userinfoRequiredScopes = ['openid', 'api_profile_get'];
+```
+</details>
 <!-- END CONF OPTIONS -->
 
 ## FAQ

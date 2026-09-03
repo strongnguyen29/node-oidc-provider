@@ -1977,8 +1977,7 @@ hai endpoint device flow đã không port sang v9."
 - Modify: `lib/actions/userinfo.js` (thêm import `instance`, sửa closure `afterFind`)
 - Create: `test/fork_userinfo/fork_userinfo.config.js`
 - Create: `test/fork_userinfo/fork_userinfo.test.js`
-- Create: `test/fork_userinfo_default/fork_userinfo_default.config.js`
-- Create: `test/fork_userinfo_default/fork_userinfo_default.test.js`
+- Create: `test/fork_userinfo/fork_userinfo_default.config.js` (config phụ **cùng thư mục**, không cần thư mục riêng — xem kết luận Task 8 Step 1; hai `describe` nằm chung một file test)
 - Modify: `docs/README.md`
 
 **Interfaces:**
@@ -1987,7 +1986,7 @@ hai endpoint device flow đã không port sang v9."
 
 **Khác spec:** hook đặt trong `lib/actions/userinfo.js`, không phải `lib/shared/access_token.js`. `getValidateAccessToken({ afterFind })` gọi `await afterFind?.(ctx, accessToken)` nên closure đọc được config lúc chạy.
 
-- [ ] **Step 1: Thêm config vào `defaults.js`**
+- [x] **Step 1: Thêm config vào `defaults.js`**
 
 Chèn ngay sau khối `grantTypeParamsDefault: [],` (thêm ở Task 8):
 
@@ -2014,7 +2013,7 @@ Chèn ngay sau khối `grantTypeParamsDefault: [],` (thêm ở Task 8):
     userinfoRequiredScopes: ['openid'],
 ```
 
-- [ ] **Step 2: Sửa `lib/actions/userinfo.js`**
+- [x] **Step 2: Sửa `lib/actions/userinfo.js`**
 
 Thêm import, đặt cùng nhóm import helper (sau `getCtxAccountClaims`):
 
@@ -2045,8 +2044,9 @@ Hai chi tiết bắt buộc:
 
 - Với `required = ['openid']` đoạn này cho ra đúng thông điệp `'access token missing openid scope'` và scope hint `'openid'` như upstream. Đó là điều kiện để suite upstream không đỏ.
 - Upstream đặt tên tham số đầu là `_ctx` vì không dùng; giờ có dùng nên phải đổi thành `ctx`, nếu không biome sẽ báo.
+- **Chiều ngược lại cũng đúng và dễ quên:** trong file config test, `config.findAccount = (ctx, id) => ...` không dùng `ctx` nên biome báo `noUnusedFunctionParameters`. Đặt là `_ctx`. `npm test` vẫn xanh khi có warning này, nên phải đọc output của `npm run lint`, đừng chỉ nhìn exit code.
 
-- [ ] **Step 3: Dịch config và test từ Task 5**
+- [x] **Step 3: Dịch config và test từ Task 5**
 
 Tạo `test/fork_userinfo/fork_userinfo.config.js`:
 
@@ -2079,7 +2079,7 @@ export default {
 
 Tạo `test/fork_userinfo/fork_userinfo.test.js` — dịch nguyên văn từ Task 5, đổi hai dòng import và `bootstrap(import.meta.url)`. Giữ nguyên cả sáu assertion, kể cả test chuỗi lỗi chính xác.
 
-- [ ] **Step 4: Test nhánh mặc định — bước quan trọng nhất của task**
+- [x] **Step 4: Test nhánh mặc định — bước quan trọng nhất của task**
 
 Config mặc định phải giữ **đúng** hành vi upstream, không chỉ gần đúng.
 
@@ -2165,7 +2165,7 @@ describe('fork: userinfoRequiredScopes left at its default', () => {
 });
 ```
 
-- [ ] **Step 5: Chạy cả hai file**
+- [x] **Step 5: Chạy cả hai file**
 
 ```bash
 npx mocha --timeout 3000 test/fork_userinfo/fork_userinfo.test.js test/fork_userinfo_default/fork_userinfo_default.test.js
@@ -2173,7 +2173,7 @@ npx mocha --timeout 3000 test/fork_userinfo/fork_userinfo.test.js test/fork_user
 
 Expected: PASS, 9 test.
 
-- [ ] **Step 6: Chạy suite userinfo của upstream — cổng thật của task này**
+- [x] **Step 6: Chạy suite userinfo của upstream — cổng thật của task này**
 
 ```bash
 npx mocha --timeout 3000 test/userinfo/userinfo.test.js test/userinfo/bearer.test.js
@@ -2182,7 +2182,7 @@ npx mocha --timeout 3000 test/jwt_userinfo/*.test.js
 
 Expected: PASS, không đổi so với Task 7. Nếu đỏ, chuỗi lỗi hoặc scope hint đã lệch khỏi upstream — sửa `afterFind` cho khớp, **đừng** sửa test upstream.
 
-- [ ] **Step 7: Sinh lại docs, lint, chạy cả suite**
+- [x] **Step 7: Sinh lại docs, lint, chạy cả suite**
 
 ```bash
 node docs/update-configuration.js
@@ -2190,7 +2190,7 @@ npm run lint
 npm test
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add lib/actions/userinfo.js lib/helpers/defaults.js docs/README.md test/fork_userinfo/ test/fork_userinfo_default/
