@@ -72,23 +72,45 @@ access token") chỉ là thêm một file, không sửa harness.
 
 ```
 bench/
-  run.js                   CLI: --scenario, --runner http|inproc, --compare <rev>,
+  run.js                   CLI: --scenario, --transport http|inproc, --compare <rev>,
                            --profile, --smoke, --cpu-prof
-  rep.js                   chạy MỘT rep trong tiến trình con, in JSON ra stdout
-  self-test.js             kiểm tra stats + fixture
+  rep.js                   chạy MỘT rep trong tiến trình con, ghi JSON ra file --out
   lib/
     provider.js            dựng provider từ profile, import lib/index.js theo đường dẫn
     fixtures.js            đúc account/client/session/grant/code/refresh token
-    runner-http.js         node:http + undici Pool, có concurrency
-    runner-inproc.js       gọi provider.callback() với req/res giả
-    stats.js               p50/p95/p99, RPS, trim outlier
+    loop.js                vòng đo: warmup, mode, concurrency, thu mẫu
+    transport-http.js      node:http + undici Pool
+    transport-inproc.js    light-my-request inject vào provider.callback()
+    stats.js               p50/p95/p99, RPS, IQR, trim outlier
     report.js              bảng console + JSON
     compare.js             worktree, chạy xen kẽ, bảng lệch
+    *.test.js              test của harness, chạy bằng `node --test bench/`
   profiles/upstream-compatible.js
+  fixtures/jwks.json       keypair cố định, để không phải sinh RSA mỗi rep
   scenarios/01-auth-new.js … 10-discovery.js
   results/                 gitignored
   .worktrees/              gitignored
 ```
+
+Bốn điểm chốt lại khác với bản thiết kế đầu, đều do dò thử API trước khi viết kế hoạch:
+
+- **Vòng đo tách khỏi transport.** Ban đầu định làm hai runner song song
+  (`runner-http`, `runner-inproc`); mỗi runner sẽ phải tự cài lại warmup, mode và
+  concurrency. Giờ `loop.js` giữ toàn bộ logic đo, transport chỉ còn một hàm
+  `send(descriptor) → response`. Logic đo tồn tại một bản duy nhất, nên hai
+  transport không thể trôi khác nhau.
+- **`light-my-request` thành devDependency tường minh.** Tự dựng
+  `IncomingMessage`/`ServerResponse` giả chạy được với GET nhưng sự kiện `finish`
+  không phát trên đường POST, và `ctx.is()` trả null khi thiếu `content-length`.
+  `light-my-request` (cơ chế `inject` của fastify) xử lý sẵn cả hai. Nó đã có
+  trong `node_modules` nhưng chỉ là dep bắc cầu qua fastify, nên phải khai
+  tường minh.
+- **`rep.js` ghi JSON ra file `--out`, không phải stdout.** Provider in
+  WARNING/NOTICE ra stdout lúc khởi tạo; nếu kết quả cũng ra stdout thì phải lọc
+  nhiễu để parse, hỏng ngầm khi upstream thêm một notice mới.
+- **Test của harness dùng `node:test`** (`node --test bench/`) thay cho một
+  `self-test.js` tự viết. Không thêm phụ thuộc, và `test/run.js` chỉ glob
+  `test/**/*.test.js` nên `npm test` không bị ảnh hưởng.
 
 Không sửa gì trong `lib/` và `test/`. `package.json` đã khai `files: ["lib"]`
 nên `bench/` không lên npm. Thêm hai script: `bench`, `bench:smoke`. Biome lint
@@ -125,14 +147,23 @@ Mỗi scenario là một module:
 export default {
   name: 'token-authorization-code',
   mode: 'fixed-iterations',            // hoặc 'fixed-duration'
-  async prepare({ provider, fixtures, count }) { /* đúc pool → mảng descriptor */ },
-  request(item) { return { method: 'POST', path: '/token', headers, body }; },
-  check(res) { /* 200 + có access_token; sai thì abort rep */ },
+  async prepare({ provider, fixtures, count }) { /* đúc pool → mảng item */ },
+  steps: [
+    (item, prior) => ({ method: 'POST', path: '/token', headers, body }),
+  ],
+  check(responses, item) { /* 200 + có access_token; sai thì abort rep */ },
 };
 ```
 
-`request` trả về **dữ liệu thuần**, nên `runner-http` và `runner-inproc` dùng
-chung một định nghĩa scenario.
+`steps` là một mảng, chạy tuần tự trong một vòng đo, và bước sau đọc được response
+của bước trước qua `prior`. Scenario một request có đúng một step; scenario 7
+(chuỗi đầy đủ) có ba step, trong đó step cấp token dùng **code thật** lấy từ
+`Location` của step resume. Mẫu thời gian ghi cho một vòng là tổng cả các step —
+đó chính là đơn vị "một uỷ quyền".
+
+`steps` trả về **dữ liệu thuần**, nên hai transport dùng chung một định nghĩa
+scenario. Một file scenario được phép `export default` một object hoặc một mảng
+object (scenario 10 dùng dạng mảng cho `discovery` và `jwks`).
 
 `check` là bắt buộc, không phải trang trí. Benchmark đo nhầm đường lỗi là dạng
 sai phổ biến nhất và khó phát hiện nhất, vì đường lỗi *nhanh hơn* nhiều (401 do
@@ -219,15 +250,16 @@ Một benchmark sai âm thầm tệ hơn không có benchmark. Bốn cơ chế:
 3. **Bất biến thứ tự** — scenario 10 phải nhanh nhất trong tất cả. Endpoint giao
    thức nào đo ra nhanh hơn discovery là dấu hiệu short-circuit hoặc đo sai;
    report in cảnh báo.
-4. **`node bench/self-test.js`** — assert `stats.js` trên input đã biết (p95 của
-   1..100 = 95) và assert pool fixture đúc ra artifact dùng được. Không nhét vào
+4. **`node --test bench/`** — test đơn vị của harness: `stats.js` trên input đã
+   biết (p95 của 1..100 = 95), pool fixture đúc ra artifact dùng được, và hai
+   transport trả cùng một response cho cùng một descriptor. Không nhét vào
    `test/run.js`: bộ đó là suite OIDC, thêm vào chỉ làm `npm test` chậm mà không
    liên quan.
 
 ## 11. Tiêu chí hoàn thành
 
 - `npm run bench:smoke` xanh: 10/10 scenario, mọi `check` pass.
-- `node bench/self-test.js` xanh.
+- `node --test bench/` xanh.
 - `bench/run.js --compare HEAD` cho delta trong khoảng nhiễu (≈0%) trên cả 10
   scenario.
 - `bench/run.js --compare origin/main` chạy trọn và in bảng so sánh
