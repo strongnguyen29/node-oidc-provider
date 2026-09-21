@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Device Authorization</title>
+<style>body{font-family:sans-serif;max-width:400px;margin:80px auto;padding:0 20px}
+input{width:100%;padding:8px;margin:6px 0;box-sizing:border-box;text-transform:uppercase;letter-spacing:2px;font-size:18px}
+button{width:100%;padding:10px;background:#0070f3;color:#fff;border:none;cursor:pointer;font-size:16px}
+.err{color:red;margin:8px 0}
+.success{color:green;font-size:18px;text-align:center;margin:20px 0}</style>
+</head>
+<body>
+{{if .Success}}
+<div class="success">&#10003; Device authorized successfully!</div>
+<p>You may close this window and return to your device.</p>
+{{else}}
+<h2>Device Authorization</h2>
+{{if .Error}}<p class="err">{{.Error}}</p>{{end}}
+<p>Enter the code shown on your device:</p>
+<form method="POST" action="/device">
+  <input type="text" name="user_code" placeholder="XXXX-XXXX" value="{{.UserCode}}" required>
+  <button type="submit">Authorize</button>
+</form>
+{{end}}
+</body>
+</html>
